@@ -24,7 +24,24 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument("--registry_name", type=str, required=True, help="The name of the wand registry.")
+parser.add_argument(
+    "--registry_name",
+    type=str,
+    default=None,
+    help=(
+        "The name of the wandb registry (e.g., 'your-org/wandb-registry-motions/motion_name:latest'). Required if"
+        " --motion_file not provided."
+    ),
+)
+parser.add_argument(
+    "--motion_file",
+    type=str,
+    default=None,
+    help="Path to local motion file (.npz). Required if --registry_name not provided.",
+)
+parser.add_argument(
+    "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
+)
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -88,17 +105,34 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
-    # load the motion file from the wandb registry
-    registry_name = args_cli.registry_name
-    if ":" not in registry_name:  # Check if the registry name includes alias, if not, append ":latest"
-        registry_name += ":latest"
-    import pathlib
+    # Determine motion file source
+    if args_cli.motion_file:
+        # Use local motion file
+        motion_file = args_cli.motion_file
+        registry_name = None
+    elif args_cli.registry_name:
+        # Use WandB registry
+        registry_name = args_cli.registry_name
+        if ":" not in registry_name:  # Check if the registry name includes alias, if not, append ":latest"
+            registry_name += ":latest"
+        import pathlib
 
-    import wandb
+        import wandb
 
-    api = wandb.Api()
-    artifact = api.artifact(registry_name)
-    env_cfg.commands.motion.motion_file = str(pathlib.Path(artifact.download()) / "motion.npz")
+        api = wandb.Api()
+        artifact = api.artifact(registry_name)
+        motion_file = str(pathlib.Path(artifact.download()) / "motion.npz")
+    else:
+        raise ValueError("Either --motion_file or --registry_name must be specified.")
+
+    # Set motion file in environment config
+    env_cfg.commands.motion.motion_file = motion_file
+
+    # Modify terrain config if usd_path is specified
+    if args_cli.usd_path:
+        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(terrain_type="usd", usd_path=args_cli.usd_path)
+        # Set env_spacing to 0.0 for terrain-based environments
+        env_cfg.scene.env_spacing = 0.0
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
