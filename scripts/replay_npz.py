@@ -26,6 +26,9 @@ parser.add_argument(
     help="The name of the wandb registry (e.g., 'your-org/wandb-registry-motions/motion_name:latest').",
 )
 parser.add_argument("--motion_file", type=str, default=None, help="Path to local motion file (.npz).")
+parser.add_argument(
+    "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -42,6 +45,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.assets import Articulation, ArticulationCfg, AssetBaseCfg
 from isaaclab.scene import InteractiveScene, InteractiveSceneCfg
 from isaaclab.sim import SimulationContext
+from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
@@ -68,6 +72,22 @@ class ReplayMotionsSceneCfg(InteractiveSceneCfg):
 
     # articulation
     robot: ArticulationCfg = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+
+@configclass
+class ReplayMotionsTerrainSceneCfg(ReplayMotionsSceneCfg):
+    """Configuration for a replay motions scene with terrain."""
+
+    ground = TerrainImporterCfg(
+        prim_path="/World/ground",
+        terrain_type="usd",
+        usd_path=None,
+        collision_group=-1,
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
+            project_uvw=True,
+        ),
+    )
 
 
 def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
@@ -129,7 +149,12 @@ def main():
     sim_cfg.dt = 0.02
     sim = SimulationContext(sim_cfg)
 
-    scene_cfg = ReplayMotionsSceneCfg(num_envs=1, env_spacing=2.0)
+    # Use terrain scene config if usd_path is specified
+    if args_cli.usd_path:
+        scene_cfg = ReplayMotionsTerrainSceneCfg(num_envs=1, env_spacing=2.0)
+        scene_cfg.ground.usd_path = args_cli.usd_path
+    else:
+        scene_cfg = ReplayMotionsSceneCfg(num_envs=1, env_spacing=2.0)
     scene = InteractiveScene(scene_cfg)
     sim.reset()
     # Run the simulator
