@@ -20,6 +20,9 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--motion_file", type=str, default=None, help="Path to the motion file.")
+parser.add_argument(
+    "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -109,6 +112,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print(f"[INFO] Loading experiment from directory: {log_root_path}")
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
+
+    # Modify terrain config if usd_path is specified
+    if args_cli.usd_path:
+        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(terrain_type="usd", usd_path=args_cli.usd_path)
+        # Set env_spacing to 0.0 for terrain-based environments
+        env_cfg.scene.env_spacing = 0.0
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
