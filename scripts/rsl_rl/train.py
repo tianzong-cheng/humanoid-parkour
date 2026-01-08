@@ -42,6 +42,9 @@ parser.add_argument(
 parser.add_argument(
     "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
 )
+parser.add_argument(
+    "--obj_path", type=str, default=None, help="Path to OBJ terrain file (e.g., 'path/to/terrain.obj')."
+)
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -74,6 +77,7 @@ from isaaclab.envs import (
     ManagerBasedRLEnvCfg,
     multi_agent_to_single_agent,
 )
+from isaaclab.terrains import TerrainGeneratorCfg
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_pickle, dump_yaml
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
@@ -82,6 +86,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # Import extensions to set up environment tasks
 import whole_body_tracking.tasks  # noqa: F401
+from whole_body_tracking.terrain import MeshObjTerrainCfg
 from whole_body_tracking.utils.my_on_policy_runner import MotionOnPolicyRunner as OnPolicyRunner
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -131,6 +136,20 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # Modify terrain config if usd_path is specified
     if args_cli.usd_path:
         env_cfg.scene.terrain = env_cfg.scene.terrain.replace(terrain_type="usd", usd_path=args_cli.usd_path)
+        # Set env_spacing to 0.0 for terrain-based environments
+        env_cfg.scene.env_spacing = 0.0
+    # Modify terrain config if obj_path is specified
+    elif args_cli.obj_path:
+        # Create terrain generator config for OBJ file
+        terrain_generator = TerrainGeneratorCfg(
+            size=(10.0, 10.0),
+            sub_terrains={
+                "custom": MeshObjTerrainCfg(obj_path=args_cli.obj_path),
+            },
+        )
+        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(
+            terrain_type="generator", terrain_generator=terrain_generator
+        )
         # Set env_spacing to 0.0 for terrain-based environments
         env_cfg.scene.env_spacing = 0.0
 
