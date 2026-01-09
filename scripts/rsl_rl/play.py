@@ -20,6 +20,12 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--motion_file", type=str, default=None, help="Path to the motion file.")
+parser.add_argument(
+    "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
+)
+parser.add_argument(
+    "--obj_path", type=str, default=None, help="Path to OBJ terrain file (e.g., 'path/to/terrain.obj')."
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -52,6 +58,7 @@ from isaaclab.envs import (
     ManagerBasedRLEnvCfg,
     multi_agent_to_single_agent,
 )
+from isaaclab.terrains import TerrainGeneratorCfg
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -59,6 +66,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 # Import extensions to set up environment tasks
 import whole_body_tracking.tasks  # noqa: F401
+from whole_body_tracking.terrain import MeshObjTerrainCfg
 from whole_body_tracking.utils.exporter import attach_onnx_metadata, export_motion_policy_as_onnx
 
 
@@ -109,6 +117,26 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print(f"[INFO] Loading experiment from directory: {log_root_path}")
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
+
+    # Modify terrain config if usd_path is specified
+    if args_cli.usd_path:
+        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(terrain_type="usd", usd_path=args_cli.usd_path)
+        # Set env_spacing to 0.0 for terrain-based environments
+        env_cfg.scene.env_spacing = 0.0
+    # Modify terrain config if obj_path is specified
+    elif args_cli.obj_path:
+        # Create terrain generator config for OBJ file
+        terrain_generator = TerrainGeneratorCfg(
+            size=(10.0, 10.0),
+            sub_terrains={
+                "custom": MeshObjTerrainCfg(obj_path=args_cli.obj_path),
+            },
+        )
+        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(
+            terrain_type="generator", terrain_generator=terrain_generator
+        )
+        # Set env_spacing to 0.0 for terrain-based environments
+        env_cfg.scene.env_spacing = 0.0
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
