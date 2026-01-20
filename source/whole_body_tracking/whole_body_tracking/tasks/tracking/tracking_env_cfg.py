@@ -73,7 +73,7 @@ class MySceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True, force_threshold=10.0, debug_vis=True
     )
     # sensors
-    tiled_camera: RayCasterCameraCfg = RayCasterCameraCfg(
+    tiled_camera: RayCasterCameraCfg | None = RayCasterCameraCfg(
         # Offset value from Project Instinct
         offset=RayCasterCameraCfg.OffsetCfg(
             pos=(
@@ -185,14 +185,14 @@ class ObservationsCfg:
             params={
                 "sensor_cfg": SceneEntityCfg("tiled_camera"),
                 "data_type": "distance_to_image_plane",
-                "debug_vis": True,
+                "debug_vis": False,
             },
         )
 
     # observation groups
     policy: PolicyCfg = PolicyCfg()
     critic: PrivilegedCfg = PrivilegedCfg()
-    perception: PerceptionCfg = PerceptionCfg()
+    perception: PerceptionCfg | None = PerceptionCfg()
 
 
 @configclass
@@ -336,8 +336,8 @@ class CurriculumCfg:
 
 
 @configclass
-class TrackingEnvCfg(ManagerBasedRLEnvCfg):
-    """Configuration for the locomotion velocity-tracking environment."""
+class PerceptiveTrackingEnvCfg(ManagerBasedRLEnvCfg):
+    """Configuration for the perceptive whole-body tracking environment."""
 
     # Scene settings
     scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
@@ -365,3 +365,15 @@ class TrackingEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.eye = (3.0, 3.0, 1.5)
         self.viewer.origin_type = "asset_root"
         self.viewer.asset_name = "robot"
+
+
+@configclass
+class TrackingEnvCfg(PerceptiveTrackingEnvCfg):
+    """Configuration for the blind whole-body tracking environment."""
+
+    def __post_init__(self):
+        """Post initialization."""
+        super().__post_init__()
+
+        self.scene.tiled_camera = None
+        self.observations.perception = None
