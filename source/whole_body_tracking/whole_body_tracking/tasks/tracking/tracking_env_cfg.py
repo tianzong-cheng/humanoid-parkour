@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import MISSING
 
 import isaaclab.sim as sim_utils
@@ -12,7 +13,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg
+from isaaclab.sensors import ContactSensorCfg, RayCasterCameraCfg, patterns
 from isaaclab.terrains import TerrainImporterCfg
 
 ##
@@ -70,6 +71,38 @@ class MySceneCfg(InteractiveSceneCfg):
     )
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True, force_threshold=10.0, debug_vis=True
+    )
+    # sensors
+    tiled_camera: RayCasterCameraCfg | None = RayCasterCameraCfg(
+        # Offset value from Project Instinct
+        offset=RayCasterCameraCfg.OffsetCfg(
+            pos=(
+                0.04764571478 + 0.0039635 - 0.0042 * math.cos(math.radians(48)),
+                0.015,
+                0.46268178553 - 0.044 + 0.0042 * math.sin(math.radians(48)) + 0.016,
+            ),
+            rot=(
+                math.cos(math.radians(0.5) / 2) * math.cos(math.radians(48) / 2),
+                math.sin(math.radians(0.5) / 2),
+                math.sin(math.radians(48) / 2),
+                0.0,
+            ),
+            convention="world",
+        ),
+        prim_path="{ENV_REGEX_NS}/Robot/torso_link",
+        update_period=1.0 / 60.0,
+        debug_vis=False,
+        mesh_prim_paths=["/World/ground"],
+        max_distance=2.0,
+        data_types=["distance_to_image_plane"],
+        depth_clipping_behavior="max",
+        pattern_cfg=patterns.PinholeCameraPatternCfg(
+            focal_length=1.0,
+            horizontal_aperture=2 * math.tan(math.radians(87) / 2),  # fovx
+            vertical_aperture=2 * math.tan(math.radians(58) / 2),  # fovy
+            height=27,
+            width=48,
+        ),
     )
 
 
@@ -145,9 +178,21 @@ class ObservationsCfg:
         joint_vel = ObsTerm(func=mdp.joint_vel_rel)
         actions = ObsTerm(func=mdp.last_action)
 
+    @configclass
+    class PerceptionCfg(ObsGroup):
+        image = ObsTerm(
+            func=mdp.image_vis,
+            params={
+                "sensor_cfg": SceneEntityCfg("tiled_camera"),
+                "data_type": "distance_to_image_plane",
+                "debug_vis": False,
+            },
+        )
+
     # observation groups
     policy: PolicyCfg = PolicyCfg()
     critic: PrivilegedCfg = PrivilegedCfg()
+    perception: PerceptionCfg | None = PerceptionCfg()
 
 
 @configclass
@@ -291,8 +336,8 @@ class CurriculumCfg:
 
 
 @configclass
-class TrackingEnvCfg(ManagerBasedRLEnvCfg):
-    """Configuration for the locomotion velocity-tracking environment."""
+class PerceptiveTrackingEnvCfg(ManagerBasedRLEnvCfg):
+    """Configuration for the perceptive whole-body tracking environment."""
 
     # Scene settings
     scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
@@ -320,3 +365,15 @@ class TrackingEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.eye = (3.0, 3.0, 1.5)
         self.viewer.origin_type = "asset_root"
         self.viewer.asset_name = "robot"
+
+
+@configclass
+class TrackingEnvCfg(PerceptiveTrackingEnvCfg):
+    """Configuration for the blind whole-body tracking environment."""
+
+    def __post_init__(self):
+        """Post initialization."""
+        super().__post_init__()
+
+        self.scene.tiled_camera = None
+        self.observations.perception = None

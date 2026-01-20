@@ -15,6 +15,7 @@ INSTALL_REQUIRES = [
     "psutil",
     "onnxscript",
     "wandb>=0.19",
+    "opencv-python==4.11.0.86",
 ]
 
 # Installation operation
