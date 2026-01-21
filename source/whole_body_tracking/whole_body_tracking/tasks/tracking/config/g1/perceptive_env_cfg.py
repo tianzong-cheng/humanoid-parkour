@@ -2,11 +2,11 @@ from isaaclab.utils import configclass
 
 from whole_body_tracking.robots.g1 import G1_ACTION_SCALE, G1_CYLINDER_CFG
 from whole_body_tracking.tasks.tracking.config.g1.agents.rsl_rl_ppo_cfg import LOW_FREQ_SCALE
-from whole_body_tracking.tasks.tracking.tracking_env_cfg import TrackingEnvCfg
+from whole_body_tracking.tasks.tracking.tracking_env_cfg import PerceptiveTrackingEnvCfg
 
 
 @configclass
-class G1FlatEnvCfg(TrackingEnvCfg):
+class G1PerceptiveEnvCfg(PerceptiveTrackingEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
@@ -32,7 +32,7 @@ class G1FlatEnvCfg(TrackingEnvCfg):
 
 
 @configclass
-class G1FlatWoStateEstimationEnvCfg(G1FlatEnvCfg):
+class G1PerceptiveWoStateEstimationEnvCfg(G1PerceptiveEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.observations.policy.motion_anchor_pos_b = None
@@ -40,7 +40,7 @@ class G1FlatWoStateEstimationEnvCfg(G1FlatEnvCfg):
 
 
 @configclass
-class G1FlatLowFreqEnvCfg(G1FlatEnvCfg):
+class G1PerceptiveLowFreqEnvCfg(G1PerceptiveEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.decimation = round(self.decimation / LOW_FREQ_SCALE)
