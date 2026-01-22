@@ -206,6 +206,7 @@ def load_and_reorder(input_path: str):
     )
 
     print(f"Successfully reordered and saved to {output_path}")
+    return output_path
 
 
 def main():
@@ -215,7 +216,18 @@ def main():
     parser.add_argument("--input", type=str, required=True, help="Path to input npz file")
     args = parser.parse_args()
 
-    load_and_reorder(args.input)
+    output_path = load_and_reorder(args.input)
+
+    # Upload to wandb using input filename as collection name
+    import wandb
+
+    COLLECTION = Path(args.input).stem
+    run = wandb.init(project="reorder_npz", name=COLLECTION)
+    print(f"[INFO]: Logging motion to wandb: {COLLECTION}")
+    REGISTRY = "Motions"
+    logged_artifact = run.log_artifact(artifact_or_path=str(output_path), name=COLLECTION, type=REGISTRY)
+    run.link_artifact(artifact=logged_artifact, target_path=f"wandb-registry-{REGISTRY}/{COLLECTION}")
+    print(f"[INFO]: Motion saved to wandb registry: {REGISTRY}/{COLLECTION}")
 
 
 if __name__ == "__main__":
