@@ -33,7 +33,7 @@ parser.add_argument(
 parser.add_argument("--export_io_descriptors", action="store_true", default=False, help="Export IO descriptors.")
 # Custom motion and terrain arguments
 parser.add_argument(
-    "--registry_name",
+    "--motion_registry",
     type=str,
     default=None,
     help="The name of the wandb registry (e.g., 'your-org/wandb-registry-motions/motion:latest').",
@@ -45,10 +45,10 @@ parser.add_argument(
     help="Path to local motion file (e.g. 'path/to/motion.npz').",
 )
 parser.add_argument(
-    "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
+    "--terrain_usd", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
 )
 parser.add_argument(
-    "--obj_path", type=str, default=None, help="Path to OBJ terrain file (e.g., 'path/to/terrain.obj')."
+    "--terrain_obj", type=str, default=None, help="Path to OBJ terrain file (e.g., 'path/to/terrain.obj')."
 )
 
 # append RSL-RL cli arguments
@@ -157,43 +157,43 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         agent_cfg.seed = seed
 
     # Check for conflicting arguments
-    if args_cli.motion_file and args_cli.registry_name:
-        raise ValueError("Cannot specify both --motion_file and --registry_name. Please specify only one.")
-    if args_cli.usd_path and args_cli.obj_path:
-        raise ValueError("Cannot specify both --usd_path and --obj_path. Please specify only one.")
+    if args_cli.motion_file and args_cli.motion_registry:
+        raise ValueError("Cannot specify both --motion_file and --motion_registry. Please specify only one.")
+    if args_cli.terrain_usd and args_cli.terrain_obj:
+        raise ValueError("Cannot specify both --terrain_usd and --terrain_obj. Please specify only one.")
 
     # Determine motion file source
     if args_cli.motion_file:
         # Use local motion file
         motion_file = args_cli.motion_file
-    elif args_cli.registry_name:
+    elif args_cli.motion_registry:
         # Use WandB registry
-        registry_name = args_cli.registry_name
-        if ":" not in registry_name:  # Check if the registry name includes alias, if not, append ":latest"
-            registry_name += ":latest"
+        motion_registry = args_cli.motion_registry
+        if ":" not in motion_registry:  # Check if the registry name includes alias, if not, append ":latest"
+            motion_registry += ":latest"
         import wandb
 
         api = wandb.Api()
-        artifact = api.artifact(registry_name)
-        filename = registry_name.split("/")[-1].split(":")[0]
+        artifact = api.artifact(motion_registry)
+        filename = motion_registry.split("/")[-1].split(":")[0]
         motion_file = str(pathlib.Path(artifact.download()) / f"{filename}.npz")
     else:
-        raise ValueError("Either --motion_file or --registry_name must be specified.")
+        raise ValueError("Either --motion_file or --motion_registry must be specified.")
 
     # Set motion file in environment config
     env_cfg.commands.motion.motion_file = motion_file
 
-    # Modify terrain config if usd_path or obj_path is specified
-    if args_cli.usd_path:
-        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(terrain_type="usd", usd_path=args_cli.usd_path)
+    # Modify terrain config if terrain_usd or terrain_obj is specified
+    if args_cli.terrain_usd:
+        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(terrain_type="usd", usd_path=args_cli.terrain_usd)
         # Set env_spacing to 0.0 for terrain-based environments
         env_cfg.scene.env_spacing = 0.0
-    elif args_cli.obj_path:
+    elif args_cli.terrain_obj:
         # Create terrain generator config for OBJ file
         terrain_generator = TerrainGeneratorCfg(
             size=(10.0, 10.0),
             sub_terrains={
-                "custom": MeshObjTerrainCfg(obj_path=args_cli.obj_path),
+                "custom": MeshObjTerrainCfg(obj_path=args_cli.terrain_obj),
             },
         )
         env_cfg.scene.terrain = env_cfg.scene.terrain.replace(
@@ -254,7 +254,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # create runner from rsl-rl
     if agent_cfg.class_name == "OnPolicyRunner":
-        runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+        runner = OnPolicyRunner(
+            env,
+            agent_cfg.to_dict(),
+            log_dir=log_dir,
+            device=agent_cfg.device,
+            motion_registry=motion_registry if motion_registry else None,
+        )
     elif agent_cfg.class_name == "DistillationRunner":
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     else:

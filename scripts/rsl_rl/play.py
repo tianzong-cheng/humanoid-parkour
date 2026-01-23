@@ -37,10 +37,10 @@ parser.add_argument("--real-time", action="store_true", default=False, help="Run
 # Custom motion and terrain arguments
 parser.add_argument("--motion_file", type=str, default=None, help="Path to the motion file.")
 parser.add_argument(
-    "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
+    "--terrain_usd", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
 )
 parser.add_argument(
-    "--obj_path", type=str, default=None, help="Path to OBJ terrain file (e.g., 'path/to/terrain.obj')."
+    "--terrain_obj", type=str, default=None, help="Path to OBJ terrain file (e.g., 'path/to/terrain.obj')."
 )
 
 # append RSL-RL cli arguments
@@ -148,21 +148,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.log_dir = log_dir
 
     # Check for conflicting terrain arguments
-    if args_cli.usd_path and args_cli.obj_path:
-        raise ValueError("Cannot specify both --usd_path and --obj_path. Please specify only one.")
+    if args_cli.terrain_usd and args_cli.terrain_obj:
+        raise ValueError("Cannot specify both --terrain_usd and --terrain_obj. Please specify only one.")
 
-    # Modify terrain config if usd_path is specified
-    if args_cli.usd_path:
-        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(terrain_type="usd", usd_path=args_cli.usd_path)
+    # Modify terrain config if terrain_usd is specified
+    if args_cli.terrain_usd:
+        env_cfg.scene.terrain = env_cfg.scene.terrain.replace(terrain_type="usd", usd_path=args_cli.terrain_usd)
         # Set env_spacing to 0.0 for terrain-based environments
         env_cfg.scene.env_spacing = 0.0
-    # Modify terrain config if obj_path is specified
-    elif args_cli.obj_path:
+    # Modify terrain config if terrain_obj is specified
+    elif args_cli.terrain_obj:
         # Create terrain generator config for OBJ file
         terrain_generator = TerrainGeneratorCfg(
             size=(10.0, 10.0),
             sub_terrains={
-                "custom": MeshObjTerrainCfg(obj_path=args_cli.obj_path),
+                "custom": MeshObjTerrainCfg(obj_path=args_cli.terrain_obj),
             },
         )
         env_cfg.scene.terrain = env_cfg.scene.terrain.replace(
