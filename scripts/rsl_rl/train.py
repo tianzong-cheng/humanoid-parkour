@@ -99,7 +99,7 @@ import torch
 from datetime import datetime
 
 import omni
-from rsl_rl.runners import DistillationRunner, OnPolicyRunner
+from rsl_rl.runners import DistillationRunner
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -117,6 +117,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 
 import whole_body_tracking.tasks  # noqa: F401
 from whole_body_tracking.terrain import MeshObjTerrainCfg
+from whole_body_tracking.utils.my_on_policy_runner import MotionOnPolicyRunner as OnPolicyRunner
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -165,7 +166,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if args_cli.motion_file:
         # Use local motion file
         motion_file = args_cli.motion_file
-        registry_name = None
     elif args_cli.registry_name:
         # Use WandB registry
         registry_name = args_cli.registry_name
@@ -175,7 +175,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
         api = wandb.Api()
         artifact = api.artifact(registry_name)
-        motion_file = str(pathlib.Path(artifact.download()) / "motion.npz")
+        filename = registry_name.split("/")[-1].split(":")[0]
+        motion_file = str(pathlib.Path(artifact.download()) / f"{filename}.npz")
     else:
         raise ValueError("Either --motion_file or --registry_name must be specified.")
 
