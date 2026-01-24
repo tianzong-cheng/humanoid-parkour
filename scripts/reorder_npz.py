@@ -221,11 +221,14 @@ def main():
     # Upload to wandb using input filename as collection name
     import wandb
 
+    REGISTRY = "Motion"
     COLLECTION = Path(args.input).stem
     run = wandb.init(project="reorder_npz", name=COLLECTION)
+    if run.settings._offline:
+        print("\033[91m[ERROR]: Wandb is running in offline mode. Motion cannot be saved to registry.\033[0m")
+        return
     print(f"[INFO]: Logging motion to wandb: {COLLECTION}")
-    REGISTRY = "Motions"
-    logged_artifact = run.log_artifact(artifact_or_path=str(output_path), name=COLLECTION, type=REGISTRY)
+    logged_artifact = run.log_artifact(artifact_or_path=str(output_path), name=COLLECTION, type="motion")
     run.link_artifact(artifact=logged_artifact, target_path=f"wandb-registry-{REGISTRY}/{COLLECTION}")
     print(f"[INFO]: Motion saved to wandb registry: {REGISTRY}/{COLLECTION}")
 
