@@ -375,3 +375,83 @@ class MotionCommandCfg(CommandTermCfg):
 
     body_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/Command/pose")
     body_visualizer_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
+
+
+class MotionRootPosCommand(CommandTerm):
+    """Command term that uses future root positions from motion files as commands."""
+
+    cfg: MotionRootPosCommandCfg
+
+    def __init__(self, cfg: MotionRootPosCommandCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        self.robot: Articulation = env.scene[cfg.asset_name]
+        self.robot_root_body_index = self.robot.body_names.index(self.cfg.root_body_name)
+        self.body_indexes = torch.tensor(
+            self.robot.find_bodies([self.cfg.root_body_name], preserve_order=True)[0],
+            dtype=torch.long,
+            device=self.device,
+        )
+
+        self.motion = MotionLoader(self.cfg.motion_file, self.body_indexes, device=self.device)
+        self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+
+        self.future_root_pos_command = torch.zeros(self.num_envs, self.cfg.num_future_steps, 3, device=self.device)
+
+    @property
+    def command(self) -> torch.Tensor:
+        return self.future_root_pos_command.view(self.num_envs, -1)
+
+    @property
+    def root_pos_w(self) -> torch.Tensor:
+        return self.motion.body_pos_w[self.time_steps, 0]
+
+    @property
+    def future_root_pos_w(self) -> torch.Tensor:
+        offset = torch.arange(self.cfg.num_future_steps, device=self.device)
+        future_timesteps = self.time_steps.unsqueeze(1) + offset.unsqueeze(0)
+        future_timesteps = torch.clamp(future_timesteps, 0, self.motion.time_step_total - 1)
+        future_pos = self.motion.body_pos_w[future_timesteps, 0]
+        return future_pos
+
+    @property
+    def robot_root_pos_w(self) -> torch.Tensor:
+        return self.robot.data.body_pos_w[:, self.robot_root_body_index]
+
+    def _resample_command(self, env_ids: Sequence[int]):
+        if len(env_ids) == 0:
+            return
+
+        # Random sampling across the motion
+        self.time_steps[env_ids] = torch.randint(0, self.motion.time_step_total, (len(env_ids),), device=self.device)
+
+    def _update_command(self):
+        self.time_steps += 1
+        env_ids = torch.where(self.time_steps >= self.motion.time_step_total)[0]
+        self._resample_command(env_ids)
+
+        relative_pos = self.future_root_pos_w - self.robot_root_pos_w.unsqueeze(1)
+        self.future_root_pos_command = relative_pos
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        # TODO
+        pass
+
+    def _debug_vis_callback(self, event):
+        # TODO
+        pass
+
+
+@configclass
+class MotionRootPosCommandCfg(CommandTermCfg):
+    """Configuration for the future root position command.
+
+    This command term loads motion data and uses the root body's position
+    at future timesteps as the command signal.
+    """
+
+    class_type: type = MotionRootPosCommand
+    asset_name: str = MISSING
+    motion_file: str = MISSING
+    root_body_name: str = "torso_link"
+    num_future_steps: int = 5
