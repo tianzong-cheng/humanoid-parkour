@@ -23,6 +23,8 @@ from isaaclab.utils.math import (
     yaw_quat,
 )
 
+from whole_body_tracking.utils import task_selector
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -377,6 +379,35 @@ class MotionCommandCfg(CommandTermCfg):
     body_visualizer_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
 
 
+class MotionStack:
+    def __init__(self, selector: torch.Tensor):
+        self.motions = []
+        self.selector = selector
+
+    def add_motion(self, motion: MotionLoader):
+        self.motions.append(motion)
+
+    @property
+    def time_step_total(self) -> torch.Tensor:
+        return torch.tensor([motion.time_step_total for motion in self.motions])[self.selector]
+
+    @property
+    def body_pos_w(self) -> torch.Tensor:
+        return torch.stack([motion.body_pos_w for motion in self.motions])[self.selector]
+
+    @property
+    def body_quat_w(self) -> torch.Tensor:
+        return torch.stack([motion.body_quat_w for motion in self.motions])[self.selector]
+
+    @property
+    def body_lin_vel_w(self) -> torch.Tensor:
+        return torch.stack([motion.body_lin_vel_w for motion in self.motions])[self.selector]
+
+    @property
+    def body_ang_vel_w(self) -> torch.Tensor:
+        return torch.stack([motion.body_ang_vel_w for motion in self.motions])[self.selector]
+
+
 class MotionRootPosCommand(CommandTerm):
     """Command term that uses future root positions from motion files as commands."""
 
@@ -393,7 +424,27 @@ class MotionRootPosCommand(CommandTerm):
             device=self.device,
         )
 
-        self.motion = MotionLoader(self.cfg.motion_file, self.body_indexes, device=self.device)
+        selector = task_selector(num_envs=self.num_envs, num_tasks=len(self.cfg.run_path_list), device=self.device)
+        self.motion_stack = MotionStack(selector=selector)
+
+        import wandb
+
+        api = wandb.Api()
+        for run_path in self.cfg.run_path_list:
+            try:
+                run = api.run(run_path)
+                artifact = [a for a in run.logged_artifacts() if a.type == "motion"][0]
+                artifact_dir = artifact.download()
+                motion_file = [f for f in os.listdir(artifact_dir) if f.endswith(".npz")][0]
+                motion_file_path = os.path.join(artifact_dir, motion_file)
+
+                motion = MotionLoader(motion_file_path, self.body_indexes, device=self.device)
+                self.motion_stack.add_motion(motion)
+
+                print(f"Loaded motion from {run_path}")
+            except Exception as e:
+                print(f"Failed to load motion from {run_path}: {e}")
+
         self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         self.future_root_pos_command = torch.zeros(self.num_envs, self.cfg.num_future_steps, 3, device=self.device)
@@ -404,14 +455,16 @@ class MotionRootPosCommand(CommandTerm):
 
     @property
     def root_pos_w(self) -> torch.Tensor:
-        return self.motion.body_pos_w[self.time_steps, 0]
+        return self.motion_stack.body_pos_w[self.time_steps, 0]
 
     @property
     def future_root_pos_w(self) -> torch.Tensor:
         offset = torch.arange(self.cfg.num_future_steps, device=self.device)
         future_timesteps = self.time_steps.unsqueeze(1) + offset.unsqueeze(0)
-        future_timesteps = torch.clamp(future_timesteps, 0, self.motion.time_step_total - 1)
-        future_pos = self.motion.body_pos_w[future_timesteps, 0]
+        future_timesteps = torch.clamp(
+            future_timesteps, torch.zeros_like(future_timesteps), self.motion_stack.time_step_total - 1
+        )
+        future_pos = self.motion_stack.body_pos_w[future_timesteps, 0]
         return future_pos
 
     @property
@@ -423,11 +476,12 @@ class MotionRootPosCommand(CommandTerm):
             return
 
         # Random sampling across the motion
-        self.time_steps[env_ids] = torch.randint(0, self.motion.time_step_total, (len(env_ids),), device=self.device)
+        time_step_totals = self.motion_stack.time_step_total[env_ids]
+        self.time_steps[env_ids] = (torch.rand(len(env_ids), device=self.device) * time_step_totals).long()
 
     def _update_command(self):
         self.time_steps += 1
-        env_ids = torch.where(self.time_steps >= self.motion.time_step_total)[0]
+        env_ids = torch.where(self.time_steps >= self.motion_stack.time_step_total)[0]
         self._resample_command(env_ids)
 
         relative_pos = self.future_root_pos_w - self.robot_root_pos_w.unsqueeze(1)
@@ -452,6 +506,6 @@ class MotionRootPosCommandCfg(CommandTermCfg):
 
     class_type: type = MotionRootPosCommand
     asset_name: str = MISSING
-    motion_file: str = MISSING
+    run_path_list: list[str] = MISSING
     root_body_name: str = "torso_link"
     num_future_steps: int = 5
