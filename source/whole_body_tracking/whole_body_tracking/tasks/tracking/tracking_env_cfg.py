@@ -186,8 +186,9 @@ class DistillationObservationsCfg:
     class TeacherCfg(ObsGroup):
         """Observations for teacher policy (uses root_pos for multi-motion support)."""
 
-        # TODO: Implement motion command multi-motion support
-        command = ObsTerm(func=mdp.generated_commands, params={"command_name": "root_pos"})
+        command = ObsTerm(
+            func=mdp.command_term_property, params={"command_name": "root_pos", "property_name": "motion_command"}
+        )
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.5, n_max=0.5))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))

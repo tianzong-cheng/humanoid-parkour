@@ -89,6 +89,24 @@ def motion_anchor_ori_b(env: ManagerBasedEnv, command_name: str) -> torch.Tensor
     return mat[..., :2].reshape(mat.shape[0], -1)
 
 
+def command_term_property(env: ManagerBasedEnv, command_name: str, property_name: str) -> torch.Tensor:
+    """Returns a property from any command term.
+
+    This is a general-purpose observation function that can access any property
+    of any command term by name.
+
+    Args:
+        env: The environment.
+        command_name: Name of the command term.
+        property_name: Name of the property to access (e.g., "motion_command", "joint_pos", "command").
+
+    Returns:
+        The value of the specified property from the command term.
+    """
+    command = env.command_manager.get_term(command_name)
+    return getattr(command, property_name)
+
+
 def image_vis(
     env: ManagerBasedEnv,
     sensor_cfg: SceneEntityCfg = SceneEntityCfg("tiled_camera"),

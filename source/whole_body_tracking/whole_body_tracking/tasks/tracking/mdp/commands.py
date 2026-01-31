@@ -407,6 +407,14 @@ class MotionStack:
     def body_ang_vel_w(self) -> torch.Tensor:
         return torch.stack([motion.body_ang_vel_w for motion in self.motions])[self.selector]
 
+    @property
+    def joint_pos(self) -> torch.Tensor:
+        return torch.stack([motion.joint_pos for motion in self.motions])[self.selector]
+
+    @property
+    def joint_vel(self) -> torch.Tensor:
+        return torch.stack([motion.joint_vel for motion in self.motions])[self.selector]
+
 
 class MotionRootPosCommand(CommandTerm):
     """Command term that uses future root positions from motion files as commands."""
@@ -470,6 +478,19 @@ class MotionRootPosCommand(CommandTerm):
     @property
     def robot_root_pos_w(self) -> torch.Tensor:
         return self.robot.data.body_pos_w[:, self.robot_root_body_index]
+
+    @property
+    def joint_pos(self) -> torch.Tensor:
+        return self.motion_stack.joint_pos[self.time_steps]
+
+    @property
+    def joint_vel(self) -> torch.Tensor:
+        return self.motion_stack.joint_vel[self.time_steps]
+
+    @property
+    def motion_command(self) -> torch.Tensor:
+        """Returns concatenated joint position and velocity for current timestep."""
+        return torch.cat([self.joint_pos, self.joint_vel], dim=1)
 
     def _resample_command(self, env_ids: Sequence[int]):
         if len(env_ids) == 0:
