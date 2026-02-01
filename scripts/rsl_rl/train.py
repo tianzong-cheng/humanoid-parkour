@@ -99,7 +99,6 @@ import torch
 from datetime import datetime
 
 import omni
-from rsl_rl.runners import DistillationRunner
 
 from isaaclab.envs import (
     DirectMARLEnv,
@@ -116,6 +115,7 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 import whole_body_tracking.tasks  # noqa: F401
+from whole_body_tracking.rl.runners import MultiDistillationRunner as DistillationRunner
 from whole_body_tracking.terrain import MeshObjTerrainCfg
 from whole_body_tracking.utils.my_on_policy_runner import MotionOnPolicyRunner as OnPolicyRunner
 
@@ -177,11 +177,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         artifact = api.artifact(motion_registry)
         filename = motion_registry.split("/")[-1].split(":")[0]
         motion_file = str(pathlib.Path(artifact.download()) / f"{filename}.npz")
-    else:
+    elif agent_cfg.class_name == "OnPolicyRunner":
         raise ValueError("Either --motion_file or --motion_registry must be specified.")
 
     # Set motion file in environment config
-    env_cfg.commands.motion.motion_file = motion_file
+    if agent_cfg.class_name == "OnPolicyRunner":
+        env_cfg.commands.motion.motion_file = motion_file
 
     # Modify terrain config if terrain_usd or terrain_obj is specified
     if args_cli.terrain_usd:
@@ -234,7 +235,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = multi_agent_to_single_agent(env)
 
     # save resume path before creating a new log_dir
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if agent_cfg.resume:
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
 
     # wrap for video recording
@@ -268,7 +269,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
     # load the checkpoint
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if agent_cfg.resume:
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)

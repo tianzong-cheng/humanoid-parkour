@@ -2,17 +2,14 @@
 
 from isaaclab.utils import configclass
 
-from whole_body_tracking.robots.g1 import G1_ACTION_SCALE, G1_CYLINDER_CFG
+from whole_body_tracking.robots.g1 import G1_ACTION_SCALE, G1_ANCHOR_BODY_NAME, G1_BODY_NAMES, G1_CYLINDER_CFG
 from whole_body_tracking.tasks.tracking.config.g1.agents.rsl_rl_ppo_cfg import LOW_FREQ_SCALE
 from whole_body_tracking.tasks.tracking.tracking_env_cfg import DistillationEnvCfg
 
 
 @configclass
 class G1DistillationEnvCfg(DistillationEnvCfg):
-    """Configuration for G1 multi-motion distillation (blind, teacher-student).
-
-    Both teacher and student use root_pos command for multi-motion support.
-    """
+    """Configuration for G1 multi-motion distillation (blind, teacher-student)."""
 
     def __post_init__(self):
         super().__post_init__()
@@ -20,6 +17,10 @@ class G1DistillationEnvCfg(DistillationEnvCfg):
         # Set G1 robot and action scale
         self.scene.robot = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.actions.joint_pos.scale = G1_ACTION_SCALE
+
+        # Set body tracking for terminations
+        self.commands.motion.anchor_body_name = G1_ANCHOR_BODY_NAME
+        self.commands.motion.body_names = G1_BODY_NAMES
 
 
 @configclass

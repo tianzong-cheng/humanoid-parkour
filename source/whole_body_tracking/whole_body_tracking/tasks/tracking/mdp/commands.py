@@ -383,13 +383,43 @@ class MotionStack:
     def __init__(self, selector: torch.Tensor):
         self.motions = []
         self.selector = selector
+        self.device = selector.device
 
     def add_motion(self, motion: MotionLoader):
         self.motions.append(motion)
 
+    def pad_motions(self):
+        """Pad all motions to the length of the longest motion by repeating the last frame."""
+        if len(self.motions) == 0:
+            return
+
+        # Find the maximum length
+        max_length = max(motion.time_step_total for motion in self.motions)
+
+        # Pad each motion to max_length
+        for motion in self.motions:
+            if motion.time_step_total < max_length:
+                pad_length = max_length - motion.time_step_total
+
+                # Pad by repeating the last frame
+                motion.joint_pos = torch.cat([motion.joint_pos, motion.joint_pos[-1:].repeat(pad_length, 1)], dim=0)
+                motion.joint_vel = torch.cat([motion.joint_vel, motion.joint_vel[-1:].repeat(pad_length, 1)], dim=0)
+                motion._body_pos_w = torch.cat(
+                    [motion._body_pos_w, motion._body_pos_w[-1:].repeat(pad_length, 1, 1)], dim=0
+                )
+                motion._body_quat_w = torch.cat(
+                    [motion._body_quat_w, motion._body_quat_w[-1:].repeat(pad_length, 1, 1)], dim=0
+                )
+                motion._body_lin_vel_w = torch.cat(
+                    [motion._body_lin_vel_w, motion._body_lin_vel_w[-1:].repeat(pad_length, 1, 1)], dim=0
+                )
+                motion._body_ang_vel_w = torch.cat(
+                    [motion._body_ang_vel_w, motion._body_ang_vel_w[-1:].repeat(pad_length, 1, 1)], dim=0
+                )
+
     @property
     def time_step_total(self) -> torch.Tensor:
-        return torch.tensor([motion.time_step_total for motion in self.motions])[self.selector]
+        return torch.tensor([motion.time_step_total for motion in self.motions], device=self.device)[self.selector]
 
     @property
     def body_pos_w(self) -> torch.Tensor:
@@ -426,8 +456,11 @@ class MotionRootPosCommand(CommandTerm):
 
         self.robot: Articulation = env.scene[cfg.asset_name]
         self.robot_root_body_index = self.robot.body_names.index(self.cfg.root_body_name)
+        self.robot_anchor_body_index = self.robot.body_names.index(self.cfg.anchor_body_name)
+        self.motion_root_body_index = self.cfg.body_names.index(self.cfg.root_body_name)
+        self.motion_anchor_body_index = self.cfg.body_names.index(self.cfg.anchor_body_name)
         self.body_indexes = torch.tensor(
-            self.robot.find_bodies([self.cfg.root_body_name], preserve_order=True)[0],
+            self.robot.find_bodies(self.cfg.body_names, preserve_order=True)[0],
             dtype=torch.long,
             device=self.device,
         )
@@ -441,9 +474,20 @@ class MotionRootPosCommand(CommandTerm):
         for run_path in self.cfg.run_path_list:
             try:
                 run = api.run(run_path)
-                artifact = [a for a in run.logged_artifacts() if a.type == "motion"][0]
+                # Use used_artifacts() to get input artifacts, not logged_artifacts() for output artifacts
+                motion_artifacts = [a for a in run.used_artifacts() if a.type == "motion"]
+                if not motion_artifacts:
+                    print(f"Warning: No motion artifacts found in run {run_path}. Skipping...")
+                    continue
+
+                artifact = motion_artifacts[0]
                 artifact_dir = artifact.download()
-                motion_file = [f for f in os.listdir(artifact_dir) if f.endswith(".npz")][0]
+                motion_files = [f for f in os.listdir(artifact_dir) if f.endswith(".npz")]
+                if not motion_files:
+                    print(f"Warning: No .npz files found in artifact from run {run_path}. Skipping...")
+                    continue
+
+                motion_file = motion_files[0]
                 motion_file_path = os.path.join(artifact_dir, motion_file)
 
                 motion = MotionLoader(motion_file_path, self.body_indexes, device=self.device)
@@ -453,9 +497,23 @@ class MotionRootPosCommand(CommandTerm):
             except Exception as e:
                 print(f"Failed to load motion from {run_path}: {e}")
 
+        # Validate that at least one motion was loaded
+        if len(self.motion_stack.motions) == 0:
+            raise RuntimeError(
+                f"Failed to load any motions from the provided run_path_list: {self.cfg.run_path_list}. "
+                "Please ensure that the WandB runs have motion artifacts. "
+                "Check that the runs used motion artifacts as inputs during training."
+            )
+
+        # Pad motions to the same length
+        self.motion_stack.pad_motions()
+
         self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         self.future_root_pos_command = torch.zeros(self.num_envs, self.cfg.num_future_steps, 3, device=self.device)
+
+        # Initialize metrics
+        self.metrics["error_root_pos"] = torch.zeros(self.num_envs, device=self.device)
 
     @property
     def command(self) -> torch.Tensor:
@@ -463,16 +521,19 @@ class MotionRootPosCommand(CommandTerm):
 
     @property
     def root_pos_w(self) -> torch.Tensor:
-        return self.motion_stack.body_pos_w[self.time_steps, 0]
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.body_pos_w[env_indices, self.time_steps, self.motion_root_body_index]
 
     @property
     def future_root_pos_w(self) -> torch.Tensor:
         offset = torch.arange(self.cfg.num_future_steps, device=self.device)
         future_timesteps = self.time_steps.unsqueeze(1) + offset.unsqueeze(0)
-        future_timesteps = torch.clamp(
-            future_timesteps, torch.zeros_like(future_timesteps), self.motion_stack.time_step_total - 1
-        )
-        future_pos = self.motion_stack.body_pos_w[future_timesteps, 0]
+        max_timestep = (self.motion_stack.time_step_total - 1).unsqueeze(1)
+        future_timesteps = torch.clamp(future_timesteps, torch.zeros_like(future_timesteps), max_timestep)
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        future_pos = self.motion_stack.body_pos_w[
+            env_indices.unsqueeze(1), future_timesteps, self.motion_root_body_index
+        ]
         return future_pos
 
     @property
@@ -481,16 +542,44 @@ class MotionRootPosCommand(CommandTerm):
 
     @property
     def joint_pos(self) -> torch.Tensor:
-        return self.motion_stack.joint_pos[self.time_steps]
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.joint_pos[env_indices, self.time_steps]
 
     @property
     def joint_vel(self) -> torch.Tensor:
-        return self.motion_stack.joint_vel[self.time_steps]
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.joint_vel[env_indices, self.time_steps]
 
     @property
     def motion_command(self) -> torch.Tensor:
-        """Returns concatenated joint position and velocity for current timestep."""
         return torch.cat([self.joint_pos, self.joint_vel], dim=1)
+
+    @property
+    def robot_anchor_pos_w(self) -> torch.Tensor:
+        return self.robot.data.body_pos_w[:, self.robot_anchor_body_index]
+
+    @property
+    def robot_anchor_quat_w(self) -> torch.Tensor:
+        return self.robot.data.body_quat_w[:, self.robot_anchor_body_index]
+
+    @property
+    def anchor_pos_w(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.body_pos_w[env_indices, self.time_steps, self.motion_anchor_body_index]
+
+    @property
+    def anchor_quat_w(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.body_quat_w[env_indices, self.time_steps, self.motion_anchor_body_index]
+
+    @property
+    def body_pos_relative_w(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.body_pos_w[env_indices, self.time_steps]
+
+    @property
+    def robot_body_pos_w(self) -> torch.Tensor:
+        return self.robot.data.body_pos_w[:, self.body_indexes]
 
     def _resample_command(self, env_ids: Sequence[int]):
         if len(env_ids) == 0:
@@ -507,6 +596,11 @@ class MotionRootPosCommand(CommandTerm):
 
         relative_pos = self.future_root_pos_w - self.robot_root_pos_w.unsqueeze(1)
         self.future_root_pos_command = relative_pos
+
+    def _update_metrics(self):
+        # Track error between current robot root position and target root position
+        error = torch.norm(self.root_pos_w - self.robot_root_pos_w, dim=-1)
+        self.metrics["error_root_pos"] = error
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         # TODO
@@ -529,4 +623,6 @@ class MotionRootPosCommandCfg(CommandTermCfg):
     asset_name: str = MISSING
     run_path_list: list[str] = MISSING
     root_body_name: str = "torso_link"
+    anchor_body_name: str = MISSING
+    body_names: list[str] = MISSING
     num_future_steps: int = 5

@@ -106,12 +106,9 @@ class MotionTrackingCommandsCfg:
 
 @configclass
 class DistillationCommandsCfg:
-    """Command specifications for multi-motion distillation.
+    """Command specifications for multi-motion distillation."""
 
-    Both teacher and student use root_pos command which supports loading multiple motions.
-    """
-
-    root_pos = mdp.MotionRootPosCommandCfg(
+    motion = mdp.MotionRootPosCommandCfg(
         asset_name="robot",
         run_path_list=[
             "tianzong-cheng-shanghai-jiao-tong-university/humanoid-parkour/t3ebzdy0",  # 2026-01-26_08-37-07_walk1_subject5
@@ -184,10 +181,17 @@ class DistillationObservationsCfg:
 
     @configclass
     class TeacherCfg(ObsGroup):
-        """Observations for teacher policy (uses root_pos for multi-motion support)."""
+        """Observations for teacher policy (matches MotionTrackingObservationsCfg.PolicyCfg but uses motion command)."""
 
+        # observation terms (order preserved to match teacher policy training)
         command = ObsTerm(
-            func=mdp.command_term_property, params={"command_name": "root_pos", "property_name": "motion_command"}
+            func=mdp.command_term_property, params={"command_name": "motion", "property_name": "motion_command"}
+        )
+        motion_anchor_pos_b = ObsTerm(
+            func=mdp.motion_anchor_pos_b, params={"command_name": "motion"}, noise=Unoise(n_min=-0.25, n_max=0.25)
+        )
+        motion_anchor_ori_b = ObsTerm(
+            func=mdp.motion_anchor_ori_b, params={"command_name": "motion"}, noise=Unoise(n_min=-0.05, n_max=0.05)
         )
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.5, n_max=0.5))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
@@ -203,7 +207,7 @@ class DistillationObservationsCfg:
     class StudentCfg(ObsGroup):
         """Observations for student policy (root position command only)."""
 
-        command = ObsTerm(func=mdp.generated_commands, params={"command_name": "root_pos"})
+        command = ObsTerm(func=mdp.generated_commands, params={"command_name": "motion"})
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.5, n_max=0.5))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
@@ -289,7 +293,7 @@ class EventCfg:
 
 
 @configclass
-class RewardsCfg:
+class MotionTrackingRewardsCfg:
     """Reward terms for the MDP."""
 
     motion_global_anchor_pos = RewTerm(
@@ -344,6 +348,13 @@ class RewardsCfg:
 
 
 @configclass
+class DistillationRewardsCfg:
+    """Distillation does not use rewards."""
+
+    pass
+
+
+@configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
@@ -389,7 +400,6 @@ class BaseTrackingEnvCfg(ManagerBasedRLEnvCfg):
 
     scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
     actions: ActionsCfg = ActionsCfg()
-    rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
@@ -416,6 +426,7 @@ class MotionTrackingEnvCfg(BaseTrackingEnvCfg):
 
     observations: MotionTrackingObservationsCfg = MotionTrackingObservationsCfg()
     commands: MotionTrackingCommandsCfg = MotionTrackingCommandsCfg()
+    rewards: MotionTrackingRewardsCfg = MotionTrackingRewardsCfg()
 
 
 @configclass
@@ -424,6 +435,7 @@ class DistillationEnvCfg(BaseTrackingEnvCfg):
 
     observations: DistillationObservationsCfg = DistillationObservationsCfg()
     commands: DistillationCommandsCfg = DistillationCommandsCfg()
+    rewards: DistillationRewardsCfg = DistillationRewardsCfg()
 
 
 @configclass

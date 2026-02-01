@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import os
 import torch
 from tensordict import TensorDict
@@ -40,10 +41,12 @@ class StudentTeachers(StudentTeacher):
             noise_std_type=noise_std_type,
             **kwargs,
         )
+        self.num_actions = num_actions
         self.run_path_list = run_path_list
         self.teachers = []
         self.load_teachers(run_path_list)
-        self.num_actions = num_actions
+        if self.teachers:
+            self.loaded_teacher = True
 
     def load_state_dict(self, state_dict: dict, strict: bool = True) -> bool:
         # Teacher policies are loaded in constructor, so we don't need to load a teacher policy here.
@@ -121,13 +124,20 @@ class StudentTeachers(StudentTeacher):
             actions = torch.zeros(num_envs, self.num_actions, device=teacher_obs.device)
             start_idx = 0
             for teacher_idx in range(num_teachers):
+                # TODO: Align with task_selector
                 end_idx = start_idx + envs_per_teacher + (1 if teacher_idx < remainder else 0)
 
                 teacher = self.teachers[teacher_idx]
 
                 partition_obs = teacher_obs[start_idx:end_idx]
                 obs_numpy = partition_obs.cpu().numpy()
-                teacher_output = teacher.run(None, {"obs": obs_numpy})[0]
+
+                # Create dummy time_step input (not used since we only need actions output)
+                batch_size = obs_numpy.shape[0]
+                time_step_numpy = np.zeros((batch_size, 1), dtype=np.float32)
+
+                # ONNX model returns [actions, joint_pos, joint_vel, body_pos_w, body_quat_w, body_lin_vel_w, body_ang_vel_w]
+                teacher_output = teacher.run(None, {"obs": obs_numpy, "time_step": time_step_numpy})[0]
                 actions[start_idx:end_idx] = torch.from_numpy(teacher_output).to(teacher_obs.device)
 
                 start_idx = end_idx

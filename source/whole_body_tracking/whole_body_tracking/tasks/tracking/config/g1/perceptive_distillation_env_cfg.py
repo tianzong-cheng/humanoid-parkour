@@ -9,11 +9,7 @@ from whole_body_tracking.tasks.tracking.tracking_env_cfg import PerceptiveDistil
 
 @configclass
 class G1PerceptiveDistillationEnvCfg(PerceptiveDistillationEnvCfg):
-    """Configuration for G1 multi-motion distillation with perception (teacher-student + depth camera).
-
-    Both teacher and student use root_pos command for multi-motion support.
-    Student additionally receives depth camera observations.
-    """
+    """Configuration for G1 multi-motion distillation with perception (teacher-student + depth camera)."""
 
     def __post_init__(self):
         super().__post_init__()

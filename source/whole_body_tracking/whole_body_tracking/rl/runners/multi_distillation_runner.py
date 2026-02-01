@@ -13,6 +13,8 @@ class MultiDistillationRunner(DistillationRunner):
         """Save the model and export ONNX policy to Wandb registry."""
         super().save(path, infos)
 
+        # TODO: Support multi-distillation
+        return
         if self.logger.logger_type in ["wandb"]:
             # Export ONNX policy
             policy_path = path.split("model")[0]
