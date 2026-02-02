@@ -2,7 +2,7 @@ from rsl_rl.env import VecEnv
 from rsl_rl.runners.on_policy_runner import OnPolicyRunner
 
 import wandb
-from whole_body_tracking.utils.exporter import attach_onnx_metadata, export_motion_policy_as_onnx
+from whole_body_tracking.utils.exporter import attach_onnx_metadata, export_policy_as_onnx
 
 
 class MotionOnPolicyRunner(OnPolicyRunner):
@@ -20,9 +20,8 @@ class MotionOnPolicyRunner(OnPolicyRunner):
         if self.logger.logger_type in ["wandb"]:
             policy_path = path.split("model")[0]
             filename = policy_path.split("/")[-2] + ".onnx"
-            export_motion_policy_as_onnx(
-                self.env.unwrapped,
-                self.alg.policy,
+            export_policy_as_onnx(
+                actor_critic=self.alg.policy,
                 normalizer=self.alg.policy.actor_obs_normalizer,
                 path=policy_path,
                 filename=filename,

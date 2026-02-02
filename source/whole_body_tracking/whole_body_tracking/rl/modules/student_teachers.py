@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
 import os
 import torch
 from tensordict import TensorDict
@@ -132,12 +131,7 @@ class StudentTeachers(StudentTeacher):
                 partition_obs = teacher_obs[start_idx:end_idx]
                 obs_numpy = partition_obs.cpu().numpy()
 
-                # Create dummy time_step input (not used since we only need actions output)
-                batch_size = obs_numpy.shape[0]
-                time_step_numpy = np.zeros((batch_size, 1), dtype=np.float32)
-
-                # ONNX model returns [actions, joint_pos, joint_vel, body_pos_w, body_quat_w, body_lin_vel_w, body_ang_vel_w]
-                teacher_output = teacher.run(None, {"obs": obs_numpy, "time_step": time_step_numpy})[0]
+                teacher_output = teacher.run(None, {"obs": obs_numpy})[0]
                 actions[start_idx:end_idx] = torch.from_numpy(teacher_output).to(teacher_obs.device)
 
                 start_idx = end_idx

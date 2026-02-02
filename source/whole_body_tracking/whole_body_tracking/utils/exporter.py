@@ -78,6 +78,58 @@ class _OnnxMotionPolicyExporter(_OnnxPolicyExporter):
         )
 
 
+def export_policy_as_onnx(
+    actor_critic: object,
+    path: str,
+    normalizer: object | None = None,
+    filename="policy.onnx",
+    verbose=False,
+):
+    """Export policy to ONNX without baking in motion data. Supports dynamic batch sizes.
+
+    Args:
+        actor_critic: The actor-critic model to export
+        path: Directory path to save the ONNX file
+        normalizer: Optional observation normalizer
+        filename: Name of the output ONNX file
+        verbose: Whether to print verbose export information
+    """
+    if not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+    policy_exporter = _OnnxSimplePolicyExporter(actor_critic, normalizer, verbose)
+    policy_exporter.export(path, filename)
+
+
+class _OnnxSimplePolicyExporter(_OnnxPolicyExporter):
+    """Simple ONNX policy exporter without motion data, supporting dynamic batch sizes."""
+
+    def __init__(self, actor_critic, normalizer=None, verbose=False):
+        super().__init__(actor_critic, normalizer, verbose)
+
+    def forward(self, x):
+        """Forward pass that only returns actions."""
+        return self.actor(self.normalizer(x))
+
+    def export(self, path, filename):
+        """Export policy to ONNX with dynamic batch size support."""
+        self.to("cpu")
+        obs = torch.zeros(1, self.actor[0].in_features)
+        torch.onnx.export(
+            self,
+            obs,
+            os.path.join(path, filename),
+            export_params=True,
+            opset_version=11,
+            verbose=self.verbose,
+            input_names=["obs"],
+            output_names=["actions"],
+            dynamic_axes={
+                "obs": {0: "batch_size"},
+                "actions": {0: "batch_size"},
+            },
+        )
+
+
 def list_to_csv_str(arr, *, decimals: int = 3, delimiter: str = ",") -> str:
     fmt = f"{{:.{decimals}f}}"
     return delimiter.join(
