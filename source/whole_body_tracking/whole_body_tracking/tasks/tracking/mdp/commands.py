@@ -589,6 +589,45 @@ class MotionRootPosCommand(CommandTerm):
         time_step_totals = self.motion_stack.time_step_total[env_ids]
         self.time_steps[env_ids] = (torch.rand(len(env_ids), device=self.device) * time_step_totals).long()
 
+        # Get motion state at sampled timestep
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        root_pos = self.motion_stack.body_pos_w[env_indices, self.time_steps, 0].clone()
+        root_pos += self._env.scene.env_origins
+        root_ori = self.motion_stack.body_quat_w[env_indices, self.time_steps, 0].clone()
+        root_lin_vel = self.motion_stack.body_lin_vel_w[env_indices, self.time_steps, 0].clone()
+        root_ang_vel = self.motion_stack.body_ang_vel_w[env_indices, self.time_steps, 0].clone()
+
+        # Add randomization to pose
+        range_list = [self.cfg.pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+        ranges = torch.tensor(range_list, device=self.device)
+        rand_samples = sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=self.device)
+        root_pos[env_ids] += rand_samples[:, 0:3]
+        orientations_delta = quat_from_euler_xyz(rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5])
+        root_ori[env_ids] = quat_mul(orientations_delta, root_ori[env_ids])
+
+        # Add randomization to velocity
+        range_list = [self.cfg.velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+        ranges = torch.tensor(range_list, device=self.device)
+        rand_samples = sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=self.device)
+        root_lin_vel[env_ids] += rand_samples[:, :3]
+        root_ang_vel[env_ids] += rand_samples[:, 3:]
+
+        # Get joint states and add randomization
+        joint_pos = self.joint_pos.clone()
+        joint_vel = self.joint_vel.clone()
+        joint_pos += sample_uniform(*self.cfg.joint_position_range, joint_pos.shape, joint_pos.device)
+        soft_joint_pos_limits = self.robot.data.soft_joint_pos_limits[env_ids]
+        joint_pos[env_ids] = torch.clip(
+            joint_pos[env_ids], soft_joint_pos_limits[:, :, 0], soft_joint_pos_limits[:, :, 1]
+        )
+
+        # Write states to simulator
+        self.robot.write_joint_state_to_sim(joint_pos[env_ids], joint_vel[env_ids], env_ids=env_ids)
+        self.robot.write_root_state_to_sim(
+            torch.cat([root_pos[env_ids], root_ori[env_ids], root_lin_vel[env_ids], root_ang_vel[env_ids]], dim=-1),
+            env_ids=env_ids,
+        )
+
     def _update_command(self):
         self.time_steps += 1
         env_ids = torch.where(self.time_steps >= self.motion_stack.time_step_total)[0]
@@ -626,3 +665,7 @@ class MotionRootPosCommandCfg(CommandTermCfg):
     anchor_body_name: str = MISSING
     body_names: list[str] = MISSING
     num_future_steps: int = 5
+
+    pose_range: dict[str, tuple[float, float]] = {}
+    velocity_range: dict[str, tuple[float, float]] = {}
+    joint_position_range: tuple[float, float] = (-0.52, 0.52)

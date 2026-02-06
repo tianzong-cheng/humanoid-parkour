@@ -93,7 +93,7 @@ class StudentTeachers(StudentTeacher):
 
                 onnx_filename = onnx_files[0]
                 onnx_path = os.path.join(artifact_dir, onnx_filename)
-                teacher_session = ort.InferenceSession(onnx_path, providers=["CUDAExecutionProvider"])
+                teacher_session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
 
                 self.teachers.append(teacher_session)
                 print(f"[INFO] Using artifact: {artifact.name} (version: {artifact.version})")
