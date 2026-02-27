@@ -522,7 +522,10 @@ class MotionRootPosCommand(CommandTerm):
     @property
     def root_pos_w(self) -> torch.Tensor:
         env_indices = torch.arange(self.num_envs, device=self.device)
-        return self.motion_stack.body_pos_w[env_indices, self.time_steps, self.motion_root_body_index]
+        return (
+            self.motion_stack.body_pos_w[env_indices, self.time_steps, self.motion_root_body_index]
+            + self._env.scene.env_origins
+        )
 
     @property
     def future_root_pos_w(self) -> torch.Tensor:
@@ -534,7 +537,7 @@ class MotionRootPosCommand(CommandTerm):
         future_pos = self.motion_stack.body_pos_w[
             env_indices.unsqueeze(1), future_timesteps, self.motion_root_body_index
         ]
-        return future_pos
+        return future_pos + self._env.scene.env_origins[:, None, :]
 
     @property
     def robot_root_pos_w(self) -> torch.Tensor:
@@ -565,7 +568,10 @@ class MotionRootPosCommand(CommandTerm):
     @property
     def anchor_pos_w(self) -> torch.Tensor:
         env_indices = torch.arange(self.num_envs, device=self.device)
-        return self.motion_stack.body_pos_w[env_indices, self.time_steps, self.motion_anchor_body_index]
+        return (
+            self.motion_stack.body_pos_w[env_indices, self.time_steps, self.motion_anchor_body_index]
+            + self._env.scene.env_origins
+        )
 
     @property
     def anchor_quat_w(self) -> torch.Tensor:
@@ -575,7 +581,7 @@ class MotionRootPosCommand(CommandTerm):
     @property
     def body_pos_relative_w(self) -> torch.Tensor:
         env_indices = torch.arange(self.num_envs, device=self.device)
-        return self.motion_stack.body_pos_w[env_indices, self.time_steps]
+        return self.motion_stack.body_pos_w[env_indices, self.time_steps] + self._env.scene.env_origins[:, None, :]
 
     @property
     def robot_body_pos_w(self) -> torch.Tensor:
