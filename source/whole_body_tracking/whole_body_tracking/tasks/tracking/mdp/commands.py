@@ -23,6 +23,8 @@ from isaaclab.utils.math import (
     yaw_quat,
 )
 
+from whole_body_tracking.utils import task_selector
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -375,3 +377,301 @@ class MotionCommandCfg(CommandTermCfg):
 
     body_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/Command/pose")
     body_visualizer_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
+
+
+class MotionStack:
+    def __init__(self, selector: torch.Tensor):
+        self.motions = []
+        self.selector = selector
+        self.device = selector.device
+
+    def add_motion(self, motion: MotionLoader):
+        self.motions.append(motion)
+
+    def pad_motions(self):
+        """Pad all motions to the length of the longest motion by repeating the last frame."""
+        if len(self.motions) == 0:
+            return
+
+        # Find the maximum length
+        max_length = max(motion.time_step_total for motion in self.motions)
+
+        # Pad each motion to max_length
+        for motion in self.motions:
+            if motion.time_step_total < max_length:
+                pad_length = max_length - motion.time_step_total
+
+                # Pad by repeating the last frame
+                motion.joint_pos = torch.cat([motion.joint_pos, motion.joint_pos[-1:].repeat(pad_length, 1)], dim=0)
+                motion.joint_vel = torch.cat([motion.joint_vel, motion.joint_vel[-1:].repeat(pad_length, 1)], dim=0)
+                motion._body_pos_w = torch.cat(
+                    [motion._body_pos_w, motion._body_pos_w[-1:].repeat(pad_length, 1, 1)], dim=0
+                )
+                motion._body_quat_w = torch.cat(
+                    [motion._body_quat_w, motion._body_quat_w[-1:].repeat(pad_length, 1, 1)], dim=0
+                )
+                motion._body_lin_vel_w = torch.cat(
+                    [motion._body_lin_vel_w, motion._body_lin_vel_w[-1:].repeat(pad_length, 1, 1)], dim=0
+                )
+                motion._body_ang_vel_w = torch.cat(
+                    [motion._body_ang_vel_w, motion._body_ang_vel_w[-1:].repeat(pad_length, 1, 1)], dim=0
+                )
+
+    @property
+    def time_step_total(self) -> torch.Tensor:
+        return torch.tensor([motion.time_step_total for motion in self.motions], device=self.device)[self.selector]
+
+    @property
+    def body_pos_w(self) -> torch.Tensor:
+        return torch.stack([motion.body_pos_w for motion in self.motions])[self.selector]
+
+    @property
+    def body_quat_w(self) -> torch.Tensor:
+        return torch.stack([motion.body_quat_w for motion in self.motions])[self.selector]
+
+    @property
+    def body_lin_vel_w(self) -> torch.Tensor:
+        return torch.stack([motion.body_lin_vel_w for motion in self.motions])[self.selector]
+
+    @property
+    def body_ang_vel_w(self) -> torch.Tensor:
+        return torch.stack([motion.body_ang_vel_w for motion in self.motions])[self.selector]
+
+    @property
+    def joint_pos(self) -> torch.Tensor:
+        return torch.stack([motion.joint_pos for motion in self.motions])[self.selector]
+
+    @property
+    def joint_vel(self) -> torch.Tensor:
+        return torch.stack([motion.joint_vel for motion in self.motions])[self.selector]
+
+
+class MotionRootPosCommand(CommandTerm):
+    """Command term that uses future root positions from motion files as commands."""
+
+    cfg: MotionRootPosCommandCfg
+
+    def __init__(self, cfg: MotionRootPosCommandCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+
+        self.robot: Articulation = env.scene[cfg.asset_name]
+        self.robot_root_body_index = self.robot.body_names.index(self.cfg.root_body_name)
+        self.robot_anchor_body_index = self.robot.body_names.index(self.cfg.anchor_body_name)
+        self.motion_root_body_index = self.cfg.body_names.index(self.cfg.root_body_name)
+        self.motion_anchor_body_index = self.cfg.body_names.index(self.cfg.anchor_body_name)
+        self.body_indexes = torch.tensor(
+            self.robot.find_bodies(self.cfg.body_names, preserve_order=True)[0],
+            dtype=torch.long,
+            device=self.device,
+        )
+
+        selector = task_selector(num_envs=self.num_envs, num_tasks=len(self.cfg.run_path_list), device=self.device)
+        self.motion_stack = MotionStack(selector=selector)
+
+        import wandb
+
+        api = wandb.Api()
+        for run_path in self.cfg.run_path_list:
+            try:
+                run = api.run(run_path)
+                # Use used_artifacts() to get input artifacts, not logged_artifacts() for output artifacts
+                motion_artifacts = [a for a in run.used_artifacts() if a.type == "motion"]
+                if not motion_artifacts:
+                    print(f"Warning: No motion artifacts found in run {run_path}. Skipping...")
+                    continue
+
+                artifact = motion_artifacts[0]
+                artifact_dir = artifact.download()
+                motion_files = [f for f in os.listdir(artifact_dir) if f.endswith(".npz")]
+                if not motion_files:
+                    print(f"Warning: No .npz files found in artifact from run {run_path}. Skipping...")
+                    continue
+
+                motion_file = motion_files[0]
+                motion_file_path = os.path.join(artifact_dir, motion_file)
+
+                motion = MotionLoader(motion_file_path, self.body_indexes, device=self.device)
+                self.motion_stack.add_motion(motion)
+
+                print(f"Loaded motion from {run_path}")
+            except Exception as e:
+                print(f"Failed to load motion from {run_path}: {e}")
+
+        # Validate that at least one motion was loaded
+        if len(self.motion_stack.motions) == 0:
+            raise RuntimeError(
+                f"Failed to load any motions from the provided run_path_list: {self.cfg.run_path_list}. "
+                "Please ensure that the WandB runs have motion artifacts. "
+                "Check that the runs used motion artifacts as inputs during training."
+            )
+
+        # Pad motions to the same length
+        self.motion_stack.pad_motions()
+
+        self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+
+        self.future_root_pos_command = torch.zeros(self.num_envs, self.cfg.num_future_steps, 3, device=self.device)
+
+        # Initialize metrics
+        self.metrics["error_root_pos"] = torch.zeros(self.num_envs, device=self.device)
+
+    @property
+    def command(self) -> torch.Tensor:
+        return self.future_root_pos_command.view(self.num_envs, -1)
+
+    @property
+    def root_pos_w(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return (
+            self.motion_stack.body_pos_w[env_indices, self.time_steps, self.motion_root_body_index]
+            + self._env.scene.env_origins
+        )
+
+    @property
+    def future_root_pos_w(self) -> torch.Tensor:
+        offset = torch.arange(self.cfg.num_future_steps, device=self.device)
+        future_timesteps = self.time_steps.unsqueeze(1) + offset.unsqueeze(0)
+        max_timestep = (self.motion_stack.time_step_total - 1).unsqueeze(1)
+        future_timesteps = torch.clamp(future_timesteps, torch.zeros_like(future_timesteps), max_timestep)
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        future_pos = self.motion_stack.body_pos_w[
+            env_indices.unsqueeze(1), future_timesteps, self.motion_root_body_index
+        ]
+        return future_pos + self._env.scene.env_origins[:, None, :]
+
+    @property
+    def robot_root_pos_w(self) -> torch.Tensor:
+        return self.robot.data.body_pos_w[:, self.robot_root_body_index]
+
+    @property
+    def joint_pos(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.joint_pos[env_indices, self.time_steps]
+
+    @property
+    def joint_vel(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.joint_vel[env_indices, self.time_steps]
+
+    @property
+    def motion_command(self) -> torch.Tensor:
+        return torch.cat([self.joint_pos, self.joint_vel], dim=1)
+
+    @property
+    def robot_anchor_pos_w(self) -> torch.Tensor:
+        return self.robot.data.body_pos_w[:, self.robot_anchor_body_index]
+
+    @property
+    def robot_anchor_quat_w(self) -> torch.Tensor:
+        return self.robot.data.body_quat_w[:, self.robot_anchor_body_index]
+
+    @property
+    def anchor_pos_w(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return (
+            self.motion_stack.body_pos_w[env_indices, self.time_steps, self.motion_anchor_body_index]
+            + self._env.scene.env_origins
+        )
+
+    @property
+    def anchor_quat_w(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.body_quat_w[env_indices, self.time_steps, self.motion_anchor_body_index]
+
+    @property
+    def body_pos_relative_w(self) -> torch.Tensor:
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        return self.motion_stack.body_pos_w[env_indices, self.time_steps] + self._env.scene.env_origins[:, None, :]
+
+    @property
+    def robot_body_pos_w(self) -> torch.Tensor:
+        return self.robot.data.body_pos_w[:, self.body_indexes]
+
+    def _resample_command(self, env_ids: Sequence[int]):
+        if len(env_ids) == 0:
+            return
+
+        # Random sampling across the motion
+        time_step_totals = self.motion_stack.time_step_total[env_ids]
+        self.time_steps[env_ids] = (torch.rand(len(env_ids), device=self.device) * time_step_totals).long()
+
+        # Get motion state at sampled timestep
+        env_indices = torch.arange(self.num_envs, device=self.device)
+        root_pos = self.motion_stack.body_pos_w[env_indices, self.time_steps, 0].clone()
+        root_pos += self._env.scene.env_origins
+        root_ori = self.motion_stack.body_quat_w[env_indices, self.time_steps, 0].clone()
+        root_lin_vel = self.motion_stack.body_lin_vel_w[env_indices, self.time_steps, 0].clone()
+        root_ang_vel = self.motion_stack.body_ang_vel_w[env_indices, self.time_steps, 0].clone()
+
+        # Add randomization to pose
+        range_list = [self.cfg.pose_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+        ranges = torch.tensor(range_list, device=self.device)
+        rand_samples = sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=self.device)
+        root_pos[env_ids] += rand_samples[:, 0:3]
+        orientations_delta = quat_from_euler_xyz(rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5])
+        root_ori[env_ids] = quat_mul(orientations_delta, root_ori[env_ids])
+
+        # Add randomization to velocity
+        range_list = [self.cfg.velocity_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z", "roll", "pitch", "yaw"]]
+        ranges = torch.tensor(range_list, device=self.device)
+        rand_samples = sample_uniform(ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=self.device)
+        root_lin_vel[env_ids] += rand_samples[:, :3]
+        root_ang_vel[env_ids] += rand_samples[:, 3:]
+
+        # Get joint states and add randomization
+        joint_pos = self.joint_pos.clone()
+        joint_vel = self.joint_vel.clone()
+        joint_pos += sample_uniform(*self.cfg.joint_position_range, joint_pos.shape, joint_pos.device)
+        soft_joint_pos_limits = self.robot.data.soft_joint_pos_limits[env_ids]
+        joint_pos[env_ids] = torch.clip(
+            joint_pos[env_ids], soft_joint_pos_limits[:, :, 0], soft_joint_pos_limits[:, :, 1]
+        )
+
+        # Write states to simulator
+        self.robot.write_joint_state_to_sim(joint_pos[env_ids], joint_vel[env_ids], env_ids=env_ids)
+        self.robot.write_root_state_to_sim(
+            torch.cat([root_pos[env_ids], root_ori[env_ids], root_lin_vel[env_ids], root_ang_vel[env_ids]], dim=-1),
+            env_ids=env_ids,
+        )
+
+    def _update_command(self):
+        self.time_steps += 1
+        env_ids = torch.where(self.time_steps >= self.motion_stack.time_step_total)[0]
+        self._resample_command(env_ids)
+
+        relative_pos = self.future_root_pos_w - self.robot_root_pos_w.unsqueeze(1)
+        self.future_root_pos_command = relative_pos
+
+    def _update_metrics(self):
+        # Track error between current robot root position and target root position
+        error = torch.norm(self.root_pos_w - self.robot_root_pos_w, dim=-1)
+        self.metrics["error_root_pos"] = error
+
+    def _set_debug_vis_impl(self, debug_vis: bool):
+        # TODO
+        pass
+
+    def _debug_vis_callback(self, event):
+        # TODO
+        pass
+
+
+@configclass
+class MotionRootPosCommandCfg(CommandTermCfg):
+    """Configuration for the future root position command.
+
+    This command term loads motion data and uses the root body's position
+    at future timesteps as the command signal.
+    """
+
+    class_type: type = MotionRootPosCommand
+    asset_name: str = MISSING
+    run_path_list: list[str] = MISSING
+    root_body_name: str = "torso_link"
+    anchor_body_name: str = MISSING
+    body_names: list[str] = MISSING
+    num_future_steps: int = 5
+
+    pose_range: dict[str, tuple[float, float]] = {}
+    velocity_range: dict[str, tuple[float, float]] = {}
+    joint_position_range: tuple[float, float] = (-0.52, 0.52)

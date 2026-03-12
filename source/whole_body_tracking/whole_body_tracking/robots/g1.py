@@ -193,3 +193,28 @@ for a in G1_CYLINDER_CFG.actuators.values():
     for n in names:
         if n in e and n in s and s[n]:
             G1_ACTION_SCALE[n] = 0.25 * e[n] / s[n]
+
+##
+# Motion tracking body configuration
+##
+
+G1_ANCHOR_BODY_NAME = "torso_link"
+"""The anchor body for motion tracking (usually the torso)."""
+
+G1_BODY_NAMES = [
+    "pelvis",
+    "left_hip_roll_link",
+    "left_knee_link",
+    "left_ankle_roll_link",
+    "right_hip_roll_link",
+    "right_knee_link",
+    "right_ankle_roll_link",
+    "torso_link",
+    "left_shoulder_roll_link",
+    "left_elbow_link",
+    "left_wrist_yaw_link",
+    "right_shoulder_roll_link",
+    "right_elbow_link",
+    "right_wrist_yaw_link",
+]
+"""List of body names for whole-body motion tracking."""

@@ -40,7 +40,11 @@ VELOCITY_RANGE = {
 
 @configclass
 class MySceneCfg(InteractiveSceneCfg):
-    """Configuration for the terrain scene with a legged robot."""
+    """Configuration for the terrain scene with a legged robot.
+
+    By default, no camera sensor is included (blind locomotion).
+    Perceptive variants should add the tiled_camera sensor.
+    """
 
     # ground terrain
     terrain = TerrainImporterCfg(
@@ -72,38 +76,6 @@ class MySceneCfg(InteractiveSceneCfg):
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True, force_threshold=10.0, debug_vis=True
     )
-    # sensors
-    tiled_camera: RayCasterCameraCfg | None = RayCasterCameraCfg(
-        # Offset value from Project Instinct
-        offset=RayCasterCameraCfg.OffsetCfg(
-            pos=(
-                0.04764571478 + 0.0039635 - 0.0042 * math.cos(math.radians(48)),
-                0.015,
-                0.46268178553 - 0.044 + 0.0042 * math.sin(math.radians(48)) + 0.016,
-            ),
-            rot=(
-                math.cos(math.radians(0.5) / 2) * math.cos(math.radians(48) / 2),
-                math.sin(math.radians(0.5) / 2),
-                math.sin(math.radians(48) / 2),
-                0.0,
-            ),
-            convention="world",
-        ),
-        prim_path="{ENV_REGEX_NS}/Robot/torso_link",
-        update_period=1.0 / 60.0,
-        debug_vis=False,
-        mesh_prim_paths=["/World/ground"],
-        max_distance=2.0,
-        data_types=["distance_to_image_plane"],
-        depth_clipping_behavior="max",
-        pattern_cfg=patterns.PinholeCameraPatternCfg(
-            focal_length=1.0,
-            horizontal_aperture=2 * math.tan(math.radians(87) / 2),  # fovx
-            vertical_aperture=2 * math.tan(math.radians(58) / 2),  # fovy
-            height=27,
-            width=48,
-        ),
-    )
 
 
 ##
@@ -112,13 +84,38 @@ class MySceneCfg(InteractiveSceneCfg):
 
 
 @configclass
-class CommandsCfg:
-    """Command specifications for the MDP."""
+class MotionTrackingCommandsCfg:
+    """Command specifications for single motion tracking."""
 
     motion = mdp.MotionCommandCfg(
         asset_name="robot",
         resampling_time_range=(1.0e9, 1.0e9),
         debug_vis=True,
+        pose_range={
+            "x": (-0.05, 0.05),
+            "y": (-0.05, 0.05),
+            "z": (-0.01, 0.01),
+            "roll": (-0.1, 0.1),
+            "pitch": (-0.1, 0.1),
+            "yaw": (-0.2, 0.2),
+        },
+        velocity_range=VELOCITY_RANGE,
+        joint_position_range=(-0.1, 0.1),
+    )
+
+
+@configclass
+class DistillationCommandsCfg:
+    """Command specifications for multi-motion distillation."""
+
+    motion = mdp.MotionRootPosCommandCfg(
+        asset_name="robot",
+        run_path_list=[
+            "tianzong-cheng-shanghai-jiao-tong-university/humanoid-parkour/t3ebzdy0",  # 2026-01-26_08-37-07_walk1_subject5
+            "tianzong-cheng-shanghai-jiao-tong-university/humanoid-parkour/nbks1ov1",  # 2026-01-26_08-37-36_run1_subject5
+        ],
+        resampling_time_range=(1.0e9, 1.0e9),
+        debug_vis=False,
         pose_range={
             "x": (-0.05, 0.05),
             "y": (-0.05, 0.05),
@@ -140,12 +137,12 @@ class ActionsCfg:
 
 
 @configclass
-class ObservationsCfg:
-    """Observation specifications for the MDP."""
+class MotionTrackingObservationsCfg:
+    """Observation specifications for single motion tracking (actor-critic)."""
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for policy group."""
+        """Observations for actor policy."""
 
         # observation terms (order preserved)
         command = ObsTerm(func=mdp.generated_commands, params={"command_name": "motion"})
@@ -166,7 +163,9 @@ class ObservationsCfg:
             self.concatenate_terms = True
 
     @configclass
-    class PrivilegedCfg(ObsGroup):
+    class CriticCfg(ObsGroup):
+        """Observations for critic (privileged information)."""
+
         command = ObsTerm(func=mdp.generated_commands, params={"command_name": "motion"})
         motion_anchor_pos_b = ObsTerm(func=mdp.motion_anchor_pos_b, params={"command_name": "motion"})
         motion_anchor_ori_b = ObsTerm(func=mdp.motion_anchor_ori_b, params={"command_name": "motion"})
@@ -178,8 +177,69 @@ class ObservationsCfg:
         joint_vel = ObsTerm(func=mdp.joint_vel_rel)
         actions = ObsTerm(func=mdp.last_action)
 
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+    critic: CriticCfg = CriticCfg()
+
+
+@configclass
+class DistillationObservationsCfg:
+    """Observation specifications for distillation (teacher-student)."""
+
+    @configclass
+    class TeacherCfg(ObsGroup):
+        """Observations for teacher policy (matches MotionTrackingObservationsCfg.PolicyCfg but uses motion command)."""
+
+        # observation terms (order preserved to match teacher policy training)
+        command = ObsTerm(
+            func=mdp.command_term_property, params={"command_name": "motion", "property_name": "motion_command"}
+        )
+        motion_anchor_pos_b = ObsTerm(
+            func=mdp.motion_anchor_pos_b, params={"command_name": "motion"}, noise=Unoise(n_min=-0.25, n_max=0.25)
+        )
+        motion_anchor_ori_b = ObsTerm(
+            func=mdp.motion_anchor_ori_b, params={"command_name": "motion"}, noise=Unoise(n_min=-0.05, n_max=0.05)
+        )
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.5, n_max=0.5))
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
+        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.5, n_max=0.5))
+        actions = ObsTerm(func=mdp.last_action)
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    @configclass
+    class StudentCfg(ObsGroup):
+        """Observations for student policy (root position command only)."""
+
+        command = ObsTerm(func=mdp.generated_commands, params={"command_name": "motion"})
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.5, n_max=0.5))
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
+        joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-0.5, n_max=0.5))
+        actions = ObsTerm(func=mdp.last_action)
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    teacher: TeacherCfg = TeacherCfg()
+    student: StudentCfg = StudentCfg()
+
+
+@configclass
+class PerceptiveDistillationObservationsCfg(DistillationObservationsCfg):
+    """Observation specifications for perceptive distillation (adds depth camera)."""
+
     @configclass
     class PerceptionCfg(ObsGroup):
+        """Depth camera observations for student policy."""
+
         image = ObsTerm(
             func=mdp.image_vis,
             params={
@@ -189,10 +249,12 @@ class ObservationsCfg:
             },
         )
 
-    # observation groups
-    policy: PolicyCfg = PolicyCfg()
-    critic: PrivilegedCfg = PrivilegedCfg()
-    perception: PerceptionCfg | None = PerceptionCfg()
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    # Add perception group
+    perception: PerceptionCfg = PerceptionCfg()
 
 
 @configclass
@@ -241,7 +303,7 @@ class EventCfg:
 
 
 @configclass
-class RewardsCfg:
+class MotionTrackingRewardsCfg:
     """Reward terms for the MDP."""
 
     motion_global_anchor_pos = RewTerm(
@@ -296,6 +358,13 @@ class RewardsCfg:
 
 
 @configclass
+class DistillationRewardsCfg:
+    """Distillation does not use rewards."""
+
+    pass
+
+
+@configclass
 class TerminationsCfg:
     """Termination terms for the MDP."""
 
@@ -336,17 +405,11 @@ class CurriculumCfg:
 
 
 @configclass
-class PerceptiveTrackingEnvCfg(ManagerBasedRLEnvCfg):
-    """Configuration for the perceptive whole-body tracking environment."""
+class BaseTrackingEnvCfg(ManagerBasedRLEnvCfg):
+    """Base configuration for all tracking environments with common settings."""
 
-    # Scene settings
     scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
-    # Basic settings
-    observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = CommandsCfg()
-    # MDP settings
-    rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
@@ -368,12 +431,61 @@ class PerceptiveTrackingEnvCfg(ManagerBasedRLEnvCfg):
 
 
 @configclass
-class TrackingEnvCfg(PerceptiveTrackingEnvCfg):
-    """Configuration for the blind whole-body tracking environment."""
+class MotionTrackingEnvCfg(BaseTrackingEnvCfg):
+    """Configuration for single motion whole-body tracking (blind, actor-critic)."""
+
+    observations: MotionTrackingObservationsCfg = MotionTrackingObservationsCfg()
+    commands: MotionTrackingCommandsCfg = MotionTrackingCommandsCfg()
+    rewards: MotionTrackingRewardsCfg = MotionTrackingRewardsCfg()
+
+
+@configclass
+class DistillationEnvCfg(BaseTrackingEnvCfg):
+    """Configuration for multi-motion distillation (blind, teacher-student)."""
+
+    observations: DistillationObservationsCfg = DistillationObservationsCfg()
+    commands: DistillationCommandsCfg = DistillationCommandsCfg()
+    rewards: DistillationRewardsCfg = DistillationRewardsCfg()
+
+
+@configclass
+class PerceptiveDistillationEnvCfg(DistillationEnvCfg):
+    """Configuration for multi-motion distillation with perception (teacher-student + depth camera)."""
+
+    observations: PerceptiveDistillationObservationsCfg = PerceptiveDistillationObservationsCfg()
 
     def __post_init__(self):
         """Post initialization."""
         super().__post_init__()
-
-        self.scene.tiled_camera = None
-        self.observations.perception = None
+        # Enable camera for perceptive locomotion (override base class default)
+        self.scene.tiled_camera = RayCasterCameraCfg(
+            # Offset value from Project Instinct
+            offset=RayCasterCameraCfg.OffsetCfg(
+                pos=(
+                    0.04764571478 + 0.0039635 - 0.0042 * math.cos(math.radians(48)),
+                    0.015,
+                    0.46268178553 - 0.044 + 0.0042 * math.sin(math.radians(48)) + 0.016,
+                ),
+                rot=(
+                    math.cos(math.radians(0.5) / 2) * math.cos(math.radians(48) / 2),
+                    math.sin(math.radians(0.5) / 2),
+                    math.sin(math.radians(48) / 2),
+                    0.0,
+                ),
+                convention="world",
+            ),
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link",
+            update_period=1.0 / 60.0,
+            debug_vis=False,
+            mesh_prim_paths=["/World/ground"],
+            max_distance=2.0,
+            data_types=["distance_to_image_plane"],
+            depth_clipping_behavior="max",
+            pattern_cfg=patterns.PinholeCameraPatternCfg(
+                focal_length=1.0,
+                horizontal_aperture=2 * math.tan(math.radians(87) / 2),  # fovx
+                vertical_aperture=2 * math.tan(math.radians(58) / 2),  # fovy
+                height=27,
+                width=48,
+            ),
+        )

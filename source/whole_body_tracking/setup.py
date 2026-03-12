@@ -14,6 +14,7 @@ EXTENSION_TOML_DATA = toml.load(os.path.join(EXTENSION_PATH, "config", "extensio
 INSTALL_REQUIRES = [
     "psutil",
     "onnxscript",
+    "onnxruntime",
     "wandb>=0.19",
     "opencv-python==4.11.0.86",
 ]

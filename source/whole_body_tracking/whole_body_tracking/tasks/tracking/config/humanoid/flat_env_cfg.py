@@ -3,11 +3,11 @@ from isaaclab.utils import configclass
 
 from whole_body_tracking.assets import ASSET_DIR
 from whole_body_tracking.robots.smpl import SMPL_HUMANOID
-from whole_body_tracking.tasks.tracking.tracking_env_cfg import TrackingEnvCfg
+from whole_body_tracking.tasks.tracking.tracking_env_cfg import MotionTrackingEnvCfg
 
 
 @configclass
-class HumanoidFlatEnvCfg(TrackingEnvCfg):
+class HumanoidFlatEnvCfg(MotionTrackingEnvCfg):
     def __post_init__(self):
         super().__post_init__()
 
