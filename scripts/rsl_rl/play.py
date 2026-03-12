@@ -226,13 +226,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
     export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
     export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
-    export_motion_policy_as_onnx(
-        env.unwrapped,
-        policy_nn,
-        normalizer=normalizer,
-        path=export_model_dir,
-        filename="policy.onnx",
-    )
+    if agent_cfg.class_name == "OnPolicyRunner":
+        export_motion_policy_as_onnx(
+            env.unwrapped,
+            policy_nn,
+            normalizer=normalizer,
+            path=export_model_dir,
+            filename="policy.onnx",
+        )
     attach_onnx_metadata(env.unwrapped, args_cli.wandb_path if args_cli.wandb_path else "none", export_model_dir)
 
     dt = env.unwrapped.step_dt
