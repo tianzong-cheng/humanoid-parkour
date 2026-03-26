@@ -125,20 +125,28 @@ IRMV_V3_TARGET_JOINT_ORDER = [
 ]
 
 IRMV_V3_TARGET_BODY_ORDER = [
-    "pelvis",
-    "left_hip_roll_link",
-    "left_knee_link",
-    "left_ankle_roll_link",
-    "right_hip_roll_link",
-    "right_knee_link",
-    "right_ankle_roll_link",
     "base_link",
+    "left_shoulder_pitch_link",
+    "right_shoulder_pitch_link",
+    "pelvis",
     "left_shoulder_roll_link",
-    "left_elbow_link",
-    "left_shoulder_yaw_link",
     "right_shoulder_roll_link",
-    "right_elbow_link",
+    "left_hip_pitch_link",
+    "right_hip_pitch_link",
+    "left_shoulder_yaw_link",
     "right_shoulder_yaw_link",
+    "left_hip_roll_link",
+    "right_hip_roll_link",
+    "left_elbow_link",
+    "right_elbow_link",
+    "left_hip_yaw_link",
+    "right_hip_yaw_link",
+    "left_knee_link",
+    "right_knee_link",
+    "left_ankle_pitch_link",
+    "right_ankle_pitch_link",
+    "left_ankle_roll_link",
+    "right_ankle_roll_link",
 ]
 
 # Robot configuration registry
