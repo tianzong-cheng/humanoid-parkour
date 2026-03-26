@@ -289,11 +289,11 @@ def main():
 
     output_path = load_and_reorder(args.input, args.robot)
 
-    # Upload to wandb using input filename as collection name
+    # Upload to wandb using output filename (with robot type suffix) as collection name
     import wandb
 
     REGISTRY = "Motion"
-    COLLECTION = Path(args.input).stem
+    COLLECTION = output_path.stem  # Use output filename which includes robot type suffix
     run = wandb.init(project="reorder_npz", name=COLLECTION)
     if run.settings._offline:
         print("\033[91m[ERROR]: Wandb is running in offline mode. Motion cannot be saved to registry.\033[0m")
