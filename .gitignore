@@ -45,4 +45,6 @@ _build
 artifacts/
 
 CLAUDE.md
+CLAUDE_NOTES.md
+CLAUDE_PROGRESS.md
 docs/
