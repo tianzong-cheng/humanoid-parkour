@@ -1,12 +1,12 @@
 """Reorder joints and bodies in an npz motion file to a standard ordering.
 
 This script loads an npz file containing motion data with joint and body names,
-extracts the last 29 joints (matching joint_names) and all bodies (matching body_names),
+extracts the last N joints (matching joint_names) and all bodies (matching body_names),
 reorders them to a predefined standard order, and saves a new npz file with only the
 essential arrays.
 
-Output is automatically saved to artifacts/reordered/{input_filename} where
-{input_filename} is the basename of the input file.
+Output is automatically saved to artifacts/reordered/{input_filename}_{robot_type}.npz
+where {input_filename} is the basename (without extension) of the input file.
 
 Input npz format must contain:
     ['fps', 'joint_pos', 'joint_vel', 'body_pos_w', 'body_quat_w',
@@ -16,40 +16,21 @@ Output npz format:
     ['fps', 'joint_pos', 'joint_vel', 'body_pos_w', 'body_quat_w',
      'body_lin_vel_w', 'body_ang_vel_w']
 
-Joint ordering (29 joints):
-    ['left_hip_pitch_joint', 'right_hip_pitch_joint', 'waist_yaw_joint',
-     'left_hip_roll_joint', 'right_hip_roll_joint', 'waist_roll_joint',
-     'left_hip_yaw_joint', 'right_hip_yaw_joint', 'waist_pitch_joint',
-     'left_knee_joint', 'right_knee_joint', 'left_shoulder_pitch_joint',
-     'right_shoulder_pitch_joint', 'left_ankle_pitch_joint',
-     'right_ankle_pitch_joint', 'left_shoulder_roll_joint',
-     'right_shoulder_roll_joint', 'left_ankle_roll_joint',
-     'right_ankle_roll_joint', 'left_shoulder_yaw_joint',
-     'right_shoulder_yaw_joint', 'left_elbow_joint', 'right_elbow_joint',
-     'left_wrist_roll_joint', 'right_wrist_roll_joint',
-     'left_wrist_pitch_joint', 'right_wrist_pitch_joint',
-     'left_wrist_yaw_joint', 'right_wrist_yaw_joint']
+Usage:
+    WANDB_MODE=online python scripts/reorder_npz.py --input artifacts/retarget/motion.npz --robot g1
 
-Body ordering (30 bodies):
-    ['pelvis', 'left_hip_pitch_link', 'right_hip_pitch_link', 'waist_yaw_link',
-     'left_hip_roll_link', 'right_hip_roll_link', 'waist_roll_link',
-     'left_hip_yaw_link', 'right_hip_yaw_link', 'torso_link',
-     'left_knee_link', 'right_knee_link', 'left_shoulder_pitch_link',
-     'right_shoulder_pitch_link', 'left_ankle_pitch_link',
-     'right_ankle_pitch_link', 'left_shoulder_roll_link',
-     'right_shoulder_roll_link', 'left_ankle_roll_link',
-     'right_ankle_roll_link', 'left_shoulder_yaw_link',
-     'right_shoulder_yaw_link', 'left_elbow_link', 'right_elbow_link',
-     'left_wrist_roll_link', 'right_wrist_roll_link',
-     'left_wrist_pitch_link', 'right_wrist_pitch_link',
-     'left_wrist_yaw_link', 'right_wrist_yaw_link']
+Note: WANDB_MODE=online is required if WandB is set to offline mode by default.
 """
 
 import argparse
 import numpy as np
 from pathlib import Path
 
-TARGET_JOINT_ORDER = [
+# ==============================================================================
+# G1 Robot Configuration (29 joints, 30 bodies)
+# ==============================================================================
+
+G1_TARGET_JOINT_ORDER = [
     "left_hip_pitch_joint",
     "right_hip_pitch_joint",
     "waist_yaw_joint",
@@ -81,7 +62,7 @@ TARGET_JOINT_ORDER = [
     "right_wrist_yaw_joint",
 ]
 
-TARGET_BODY_ORDER = [
+G1_TARGET_BODY_ORDER = [
     "pelvis",
     "left_hip_pitch_link",
     "right_hip_pitch_link",
@@ -114,18 +95,92 @@ TARGET_BODY_ORDER = [
     "right_wrist_yaw_link",
 ]
 
+# ==============================================================================
+# IRMV V3 Robot Configuration (21 joints, 14 bodies)
+# NOTE: Joint order must match URDF order for Isaac Lab compatibility
+# ==============================================================================
 
-def load_and_reorder(input_path: str):
+IRMV_V3_TARGET_JOINT_ORDER = [
+    "left_shoulder_pitch_joint",
+    "right_shoulder_pitch_joint",
+    "waist_yaw_joint",
+    "left_shoulder_roll_joint",
+    "right_shoulder_roll_joint",
+    "left_hip_pitch_joint",
+    "right_hip_pitch_joint",
+    "left_shoulder_yaw_joint",
+    "right_shoulder_yaw_joint",
+    "left_hip_roll_joint",
+    "right_hip_roll_joint",
+    "left_elbow_joint",
+    "right_elbow_joint",
+    "left_hip_yaw_joint",
+    "right_hip_yaw_joint",
+    "left_knee_joint",
+    "right_knee_joint",
+    "left_ankle_pitch_joint",
+    "right_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_ankle_roll_joint",
+]
+
+IRMV_V3_TARGET_BODY_ORDER = [
+    "pelvis",
+    "left_hip_roll_link",
+    "left_knee_link",
+    "left_ankle_roll_link",
+    "right_hip_roll_link",
+    "right_knee_link",
+    "right_ankle_roll_link",
+    "base_link",
+    "left_shoulder_roll_link",
+    "left_elbow_link",
+    "left_shoulder_yaw_link",
+    "right_shoulder_roll_link",
+    "right_elbow_link",
+    "right_shoulder_yaw_link",
+]
+
+# Robot configuration registry
+ROBOT_CONFIGS = {
+    "g1": {
+        "target_joint_order": G1_TARGET_JOINT_ORDER,
+        "target_body_order": G1_TARGET_BODY_ORDER,
+        "num_joints": 29,
+    },
+    "irmv_v3": {
+        "target_joint_order": IRMV_V3_TARGET_JOINT_ORDER,
+        "target_body_order": IRMV_V3_TARGET_BODY_ORDER,
+        "num_joints": 21,
+    },
+}
+
+
+def load_and_reorder(input_path: str, robot_type: str):
     """Load npz, reorder joints and bodies, save to output.
+
+    Args:
+        input_path: Path to input npz file.
+        robot_type: Robot type ('g1' or 'irmv_v3').
 
     Output is saved to artifacts/reordered/{input_filename} where input_filename
     is the basename of the input file.
     """
-    # Generate output path
+    # Validate robot type
+    if robot_type not in ROBOT_CONFIGS:
+        raise ValueError(f"Unknown robot type: {robot_type}. Supported: {list(ROBOT_CONFIGS.keys())}")
+
+    config = ROBOT_CONFIGS[robot_type]
+    target_joint_order = config["target_joint_order"]
+    target_body_order = config["target_body_order"]
+    num_joints = config["num_joints"]
+
+    # Generate output path with robot type suffix
     input_path_obj = Path(input_path)
     output_dir = Path("artifacts/reordered")
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / input_path_obj.name
+    output_filename = f"{input_path_obj.stem}_{robot_type}{input_path_obj.suffix}"
+    output_path = output_dir / output_filename
     data = np.load(input_path, allow_pickle=True)
     # Ensure all required keys exist
     required_keys = [
@@ -157,15 +212,15 @@ def load_and_reorder(input_path: str):
     joint_names = [str(name) for name in joint_names]
     body_names = [str(name) for name in body_names]
 
-    joint_pos_last = joint_pos[:, -29:]
-    joint_vel_last = joint_vel[:, -29:]
+    joint_pos_last = joint_pos[:, -num_joints:]
+    joint_vel_last = joint_vel[:, -num_joints:]
 
     # Create mapping from target joint name to index in joint_names
     joint_name_to_idx = {name: i for i, name in enumerate(joint_names)}
     # Build reordering index list: for each target joint, find its position in joint_names
     joint_reorder_idx = []
     missing_joints = []
-    for target in TARGET_JOINT_ORDER:
+    for target in target_joint_order:
         if target in joint_name_to_idx:
             joint_reorder_idx.append(joint_name_to_idx[target])
         else:
@@ -180,7 +235,7 @@ def load_and_reorder(input_path: str):
     body_name_to_idx = {name: i for i, name in enumerate(body_names)}
     body_reorder_idx = []
     missing_bodies = []
-    for target in TARGET_BODY_ORDER:
+    for target in target_body_order:
         if target in body_name_to_idx:
             body_reorder_idx.append(body_name_to_idx[target])
         else:
@@ -206,6 +261,7 @@ def load_and_reorder(input_path: str):
     )
 
     print(f"Successfully reordered and saved to {output_path}")
+    print(f"Robot: {robot_type}, Joints: {num_joints}, Bodies: {len(target_body_order)}")
     return output_path
 
 
@@ -214,9 +270,16 @@ def main():
         description="Reorder joints and bodies in an npz motion file to standard ordering."
     )
     parser.add_argument("--input", type=str, required=True, help="Path to input npz file")
+    parser.add_argument(
+        "--robot",
+        type=str,
+        required=True,
+        choices=list(ROBOT_CONFIGS.keys()),
+        help="Robot type (g1 or irmv_v3)",
+    )
     args = parser.parse_args()
 
-    output_path = load_and_reorder(args.input)
+    output_path = load_and_reorder(args.input, args.robot)
 
     # Upload to wandb using input filename as collection name
     import wandb

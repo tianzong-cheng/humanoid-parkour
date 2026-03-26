@@ -7,6 +7,9 @@
 
     # Usage with local motion file
     python replay_npz.py --motion_file path/to/motion.npz
+
+    # Specify robot type (default: g1)
+    python replay_npz.py --motion_file path/to/motion.npz --robot irmv_v3
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -28,6 +31,13 @@ parser.add_argument(
 parser.add_argument("--motion_file", type=str, default=None, help="Path to local motion file (.npz).")
 parser.add_argument(
     "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
+)
+parser.add_argument(
+    "--robot",
+    type=str,
+    default="g1",
+    choices=["g1", "irmv_v3"],
+    help="Robot type to use for replay (default: g1).",
 )
 
 # append AppLauncher cli args
@@ -53,41 +63,73 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 # Pre-defined configs
 ##
 from whole_body_tracking.robots.g1 import G1_CYLINDER_CFG
+from whole_body_tracking.robots.irmv_v3 import IRMV_V3_CFG
 from whole_body_tracking.tasks.tracking.mdp import MotionLoader
 
-
-@configclass
-class ReplayMotionsSceneCfg(InteractiveSceneCfg):
-    """Configuration for a replay motions scene."""
-
-    ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
-
-    sky_light = AssetBaseCfg(
-        prim_path="/World/skyLight",
-        spawn=sim_utils.DomeLightCfg(
-            intensity=750.0,
-            texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
-        ),
-    )
-
-    # articulation
-    robot: ArticulationCfg = G1_CYLINDER_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+# Mapping from robot name to configuration
+ROBOT_CONFIGS = {
+    "g1": G1_CYLINDER_CFG,
+    "irmv_v3": IRMV_V3_CFG,
+}
 
 
-@configclass
-class ReplayMotionsTerrainSceneCfg(ReplayMotionsSceneCfg):
-    """Configuration for a replay motions scene with terrain."""
+def create_scene_cfg(robot_cfg: ArticulationCfg, num_envs: int = 1, env_spacing: float = 2.0):
+    """Create a scene configuration with the specified robot."""
 
-    ground = TerrainImporterCfg(
-        prim_path="/World/ground",
-        terrain_type="usd",
-        usd_path=None,
-        collision_group=-1,
-        visual_material=sim_utils.MdlFileCfg(
-            mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
-            project_uvw=True,
-        ),
-    )
+    @configclass
+    class ReplayMotionsSceneCfg(InteractiveSceneCfg):
+        """Configuration for a replay motions scene."""
+
+        ground = AssetBaseCfg(prim_path="/World/defaultGroundPlane", spawn=sim_utils.GroundPlaneCfg())
+
+        sky_light = AssetBaseCfg(
+            prim_path="/World/skyLight",
+            spawn=sim_utils.DomeLightCfg(
+                intensity=750.0,
+                texture_file=(
+                    f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr"
+                ),
+            ),
+        )
+
+        # articulation
+        robot: ArticulationCfg = robot_cfg.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    return ReplayMotionsSceneCfg(num_envs=num_envs, env_spacing=env_spacing)
+
+
+def create_terrain_scene_cfg(robot_cfg: ArticulationCfg, usd_path: str, num_envs: int = 1, env_spacing: float = 2.0):
+    """Create a scene configuration with terrain and the specified robot."""
+
+    @configclass
+    class ReplayMotionsTerrainSceneCfg(InteractiveSceneCfg):
+        """Configuration for a replay motions scene with terrain."""
+
+        ground = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="usd",
+            usd_path=usd_path,
+            collision_group=-1,
+            visual_material=sim_utils.MdlFileCfg(
+                mdl_path="{NVIDIA_NUCLEUS_DIR}/Materials/Base/Architecture/Shingles_01.mdl",
+                project_uvw=True,
+            ),
+        )
+
+        sky_light = AssetBaseCfg(
+            prim_path="/World/skyLight",
+            spawn=sim_utils.DomeLightCfg(
+                intensity=750.0,
+                texture_file=(
+                    f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr"
+                ),
+            ),
+        )
+
+        # articulation
+        robot: ArticulationCfg = robot_cfg.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+    return ReplayMotionsTerrainSceneCfg(num_envs=num_envs, env_spacing=env_spacing)
 
 
 def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
@@ -149,12 +191,14 @@ def main():
     sim_cfg.dt = 0.02
     sim = SimulationContext(sim_cfg)
 
+    # Get robot configuration based on command line argument
+    robot_cfg = ROBOT_CONFIGS[args_cli.robot]
+
     # Use terrain scene config if usd_path is specified
     if args_cli.usd_path:
-        scene_cfg = ReplayMotionsTerrainSceneCfg(num_envs=1, env_spacing=2.0)
-        scene_cfg.ground.usd_path = args_cli.usd_path
+        scene_cfg = create_terrain_scene_cfg(robot_cfg, args_cli.usd_path, num_envs=1, env_spacing=2.0)
     else:
-        scene_cfg = ReplayMotionsSceneCfg(num_envs=1, env_spacing=2.0)
+        scene_cfg = create_scene_cfg(robot_cfg, num_envs=1, env_spacing=2.0)
     scene = InteractiveScene(scene_cfg)
     sim.reset()
     # Run the simulator

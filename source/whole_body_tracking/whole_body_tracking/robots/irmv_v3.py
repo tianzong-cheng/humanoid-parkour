@@ -217,33 +217,30 @@ This differs from G1 which has wrist_yaw_link as end effector.
 # Joint Information
 # ==============================================================================
 
-IRMV_V3_NUM_JOINTS = 22
+IRMV_V3_NUM_JOINTS = 21
 """Total number of actuated joints."""
 
 IRMV_V3_JOINT_NAMES = [
-    # Legs (12 joints)
-    "left_hip_pitch_joint",
-    "left_hip_roll_joint",
-    "left_hip_yaw_joint",
-    "left_knee_joint",
-    "left_ankle_pitch_joint",
-    "left_ankle_roll_joint",
-    "right_hip_pitch_joint",
-    "right_hip_roll_joint",
-    "right_hip_yaw_joint",
-    "right_knee_joint",
-    "right_ankle_pitch_joint",
-    "right_ankle_roll_joint",
-    # Waist (1 joint)
-    "waist_yaw_joint",
-    # Arms (8 joints)
     "left_shoulder_pitch_joint",
-    "left_shoulder_roll_joint",
-    "left_shoulder_yaw_joint",
-    "left_elbow_joint",
     "right_shoulder_pitch_joint",
+    "waist_yaw_joint",
+    "left_shoulder_roll_joint",
     "right_shoulder_roll_joint",
+    "left_hip_pitch_joint",
+    "right_hip_pitch_joint",
+    "left_shoulder_yaw_joint",
     "right_shoulder_yaw_joint",
+    "left_hip_roll_joint",
+    "right_hip_roll_joint",
+    "left_elbow_joint",
     "right_elbow_joint",
+    "left_hip_yaw_joint",
+    "right_hip_yaw_joint",
+    "left_knee_joint",
+    "right_knee_joint",
+    "left_ankle_pitch_joint",
+    "right_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_ankle_roll_joint",
 ]
 """Ordered list of joint names matching the controller configuration."""
