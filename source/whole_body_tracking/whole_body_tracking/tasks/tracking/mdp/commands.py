@@ -468,6 +468,9 @@ class MotionRootPosCommand(CommandTerm):
         selector = task_selector(num_envs=self.num_envs, num_tasks=len(self.cfg.run_path_list), device=self.device)
         self.motion_stack = MotionStack(selector=selector)
 
+        if len(self.cfg.run_path_list) == 0:
+            raise ValueError("run_path_list must contain at least one run path.")
+
         import wandb
 
         api = wandb.Api()
@@ -477,15 +480,13 @@ class MotionRootPosCommand(CommandTerm):
                 # Use used_artifacts() to get input artifacts, not logged_artifacts() for output artifacts
                 motion_artifacts = [a for a in run.used_artifacts() if a.type == "motion"]
                 if not motion_artifacts:
-                    print(f"Warning: No motion artifacts found in run {run_path}. Skipping...")
-                    continue
+                    raise RuntimeError(f"No motion artifacts found in run {run_path}.")
 
                 artifact = motion_artifacts[0]
                 artifact_dir = artifact.download()
                 motion_files = [f for f in os.listdir(artifact_dir) if f.endswith(".npz")]
                 if not motion_files:
-                    print(f"Warning: No .npz files found in artifact from run {run_path}. Skipping...")
-                    continue
+                    raise RuntimeError(f"No .npz files found in artifact {artifact.name}.")
 
                 motion_file = motion_files[0]
                 motion_file_path = os.path.join(artifact_dir, motion_file)
@@ -495,15 +496,7 @@ class MotionRootPosCommand(CommandTerm):
 
                 print(f"Loaded motion from {run_path}")
             except Exception as e:
-                print(f"Failed to load motion from {run_path}: {e}")
-
-        # Validate that at least one motion was loaded
-        if len(self.motion_stack.motions) == 0:
-            raise RuntimeError(
-                f"Failed to load any motions from the provided run_path_list: {self.cfg.run_path_list}. "
-                "Please ensure that the WandB runs have motion artifacts. "
-                "Check that the runs used motion artifacts as inputs during training."
-            )
+                raise RuntimeError(f"Failed to load motion from run path {run_path}: {e}.") from e
 
         # Pad motions to the same length
         self.motion_stack.pad_motions()
