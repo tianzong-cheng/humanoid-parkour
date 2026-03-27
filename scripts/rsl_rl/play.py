@@ -64,7 +64,6 @@ simulation_app = app_launcher.app
 
 import gymnasium as gym
 import os
-import pathlib
 import time
 import torch
 
@@ -127,17 +126,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print(f"[INFO]: Loading model checkpoint from: {run_path}/{file}")
         resume_path = f"./logs/rsl_rl/temp/{file}"
 
-        # Check for conflicting motion file arguments
         if args_cli.motion_file is not None:
-            print(f"[INFO]: Using motion file from CLI: {args_cli.motion_file}")
+            print(f"[INFO]: Using local motion file: {args_cli.motion_file}")
             env_cfg.commands.motion.motion_file = args_cli.motion_file
+        else:
+            try:
+                motion_artifacts = [a for a in wandb_run.used_artifacts() if a.type == "motion"]
+                if not motion_artifacts:
+                    raise RuntimeError(f"No motion artifacts found in run {run_path}.")
 
-        # Try to get motion artifact from WandB run
-        art = next((a for a in wandb_run.used_artifacts() if a.type == "motions"), None)
-        if art is None:
-            print("[WARN] No model artifact found in the run.")
-        elif args_cli.motion_file is None:
-            env_cfg.commands.motion.motion_file = str(pathlib.Path(art.download()) / "motion.npz")
+                artifact = motion_artifacts[0]
+                artifact_dir = artifact.download()
+                motion_files = [f for f in os.listdir(artifact_dir) if f.endswith(".npz")]
+                if not motion_files:
+                    raise RuntimeError(f"No .npz files found in artifact {artifact.name}.")
+
+                motion_file = motion_files[0]
+                motion_file_path = os.path.join(artifact_dir, motion_file)
+                print(f"[INFO]: Using motion file from artifact: {artifact.name}")
+                env_cfg.commands.motion.motion_file = motion_file_path
+            except Exception as e:
+                raise RuntimeError(f"Failed to load motion from run path {run_path}: {e}") from e
 
     else:
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
