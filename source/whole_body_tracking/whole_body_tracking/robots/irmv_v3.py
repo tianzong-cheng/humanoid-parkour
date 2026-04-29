@@ -6,7 +6,7 @@ with actual IRMV v3 motor specifications before production use.
 
 Robot Structure:
 - 22 actuated joints total
-- Root link: base_link (torso)
+- Root link: pelvis
 - Waist: waist_yaw_joint only (no roll/pitch)
 - Arms: shoulder_pitch/roll/yaw + elbow (4 per arm, 8 total)
 - Legs: hip_pitch/roll/yaw + knee + ankle_pitch/roll (6 per leg, 12 total)
@@ -53,7 +53,7 @@ IRMV_V3_CFG = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(
         fix_base=False,
         replace_cylinders_with_capsules=True,
-        asset_path=f"{ASSET_DIR}/irmv_description/urdf/IRMV_Humanoid_V3.urdf",
+        asset_path=f"{ASSET_DIR}/irmv_description/urdf/irmv_v3.urdf",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -188,8 +188,8 @@ for a in IRMV_V3_CFG.actuators.values():
 # Motion Tracking Body Configuration
 # ==============================================================================
 
-IRMV_V3_ANCHOR_BODY_NAME = "base_link"
-"""The anchor body for motion tracking (torso/base_link)."""
+IRMV_V3_ANCHOR_BODY_NAME = "pelvis"
+"""The anchor body for motion tracking (pelvis is the root link)."""
 
 IRMV_V3_BODY_NAMES = [
     "pelvis",
@@ -199,7 +199,7 @@ IRMV_V3_BODY_NAMES = [
     "right_hip_roll_link",
     "right_knee_link",
     "right_ankle_roll_link",
-    "base_link",
+    "torso_link",
     "left_shoulder_roll_link",
     "left_elbow_link",
     "left_shoulder_yaw_link",  # End effector for left arm
@@ -221,26 +221,26 @@ IRMV_V3_NUM_JOINTS = 21
 """Total number of actuated joints."""
 
 IRMV_V3_JOINT_NAMES = [
-    "left_shoulder_pitch_joint",
-    "right_shoulder_pitch_joint",
-    "waist_yaw_joint",
-    "left_shoulder_roll_joint",
-    "right_shoulder_roll_joint",
     "left_hip_pitch_joint",
-    "right_hip_pitch_joint",
-    "left_shoulder_yaw_joint",
-    "right_shoulder_yaw_joint",
     "left_hip_roll_joint",
-    "right_hip_roll_joint",
-    "left_elbow_joint",
-    "right_elbow_joint",
     "left_hip_yaw_joint",
-    "right_hip_yaw_joint",
     "left_knee_joint",
-    "right_knee_joint",
     "left_ankle_pitch_joint",
-    "right_ankle_pitch_joint",
     "left_ankle_roll_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_joint",
+    "right_ankle_pitch_joint",
     "right_ankle_roll_joint",
+    "waist_yaw_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_joint",
 ]
 """Ordered list of joint names matching the controller configuration."""

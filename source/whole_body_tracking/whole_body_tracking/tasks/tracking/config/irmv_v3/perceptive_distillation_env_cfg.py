@@ -33,7 +33,7 @@ class IRMV_V3_PerceptiveDistillationEnvCfg(PerceptiveDistillationEnvCfg):
         # Override camera offset for IRMV V3 torso geometry
         # TODO: Adjust these values based on actual IRMV V3 camera mounting position
         if hasattr(self.scene, "tiled_camera") and self.scene.tiled_camera is not None:
-            self.scene.tiled_camera.prim_path = "{ENV_REGEX_NS}/Robot/base_link"
+            self.scene.tiled_camera.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
             # Placeholder camera offset - adjust based on actual robot
             self.scene.tiled_camera.offset = RayCasterCameraCfg.OffsetCfg(
                 pos=(0.05, 0.0, 0.45),
