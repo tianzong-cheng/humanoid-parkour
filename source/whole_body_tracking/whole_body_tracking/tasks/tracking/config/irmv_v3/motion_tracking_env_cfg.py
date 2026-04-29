@@ -6,7 +6,12 @@ from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.utils import configclass
 
 import whole_body_tracking.tasks.tracking.mdp as mdp
-from whole_body_tracking.robots.irmv_v3 import IRMV_V3_ACTION_SCALE, IRMV_V3_ANCHOR_BODY_NAME, IRMV_V3_BODY_NAMES, IRMV_V3_CFG
+from whole_body_tracking.robots.irmv_v3 import (
+    IRMV_V3_ACTION_SCALE,
+    IRMV_V3_ANCHOR_BODY_NAME,
+    IRMV_V3_BODY_NAMES,
+    IRMV_V3_CFG,
+)
 from whole_body_tracking.tasks.tracking.tracking_env_cfg import MotionTrackingEnvCfg
 
 
