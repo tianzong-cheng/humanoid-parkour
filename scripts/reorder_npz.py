@@ -1,9 +1,9 @@
 """Reorder joints and bodies in an npz motion file to a standard ordering.
 
 This script loads an npz file containing motion data with joint and body names,
-extracts the last 29 joints (matching joint_names) and all bodies (matching body_names),
-reorders them to a predefined standard order, and saves a new npz file with only the
-essential arrays.
+extracts the relevant joints (matching joint_names) and all bodies (matching body_names),
+reorders them to a predefined standard order for a given robot, and saves a new npz file
+with only the essential arrays.
 
 Output is automatically saved to artifacts/reordered/{input_filename} where
 {input_filename} is the basename of the input file.
@@ -15,112 +15,143 @@ Input npz format must contain:
 Output npz format:
     ['fps', 'joint_pos', 'joint_vel', 'body_pos_w', 'body_quat_w',
      'body_lin_vel_w', 'body_ang_vel_w']
-
-Joint ordering (29 joints):
-    ['left_hip_pitch_joint', 'right_hip_pitch_joint', 'waist_yaw_joint',
-     'left_hip_roll_joint', 'right_hip_roll_joint', 'waist_roll_joint',
-     'left_hip_yaw_joint', 'right_hip_yaw_joint', 'waist_pitch_joint',
-     'left_knee_joint', 'right_knee_joint', 'left_shoulder_pitch_joint',
-     'right_shoulder_pitch_joint', 'left_ankle_pitch_joint',
-     'right_ankle_pitch_joint', 'left_shoulder_roll_joint',
-     'right_shoulder_roll_joint', 'left_ankle_roll_joint',
-     'right_ankle_roll_joint', 'left_shoulder_yaw_joint',
-     'right_shoulder_yaw_joint', 'left_elbow_joint', 'right_elbow_joint',
-     'left_wrist_roll_joint', 'right_wrist_roll_joint',
-     'left_wrist_pitch_joint', 'right_wrist_pitch_joint',
-     'left_wrist_yaw_joint', 'right_wrist_yaw_joint']
-
-Body ordering (30 bodies):
-    ['pelvis', 'left_hip_pitch_link', 'right_hip_pitch_link', 'waist_yaw_link',
-     'left_hip_roll_link', 'right_hip_roll_link', 'waist_roll_link',
-     'left_hip_yaw_link', 'right_hip_yaw_link', 'torso_link',
-     'left_knee_link', 'right_knee_link', 'left_shoulder_pitch_link',
-     'right_shoulder_pitch_link', 'left_ankle_pitch_link',
-     'right_ankle_pitch_link', 'left_shoulder_roll_link',
-     'right_shoulder_roll_link', 'left_ankle_roll_link',
-     'right_ankle_roll_link', 'left_shoulder_yaw_link',
-     'right_shoulder_yaw_link', 'left_elbow_link', 'right_elbow_link',
-     'left_wrist_roll_link', 'right_wrist_roll_link',
-     'left_wrist_pitch_link', 'right_wrist_pitch_link',
-     'left_wrist_yaw_link', 'right_wrist_yaw_link']
 """
 
 import argparse
 import numpy as np
 from pathlib import Path
 
-TARGET_JOINT_ORDER = [
-    "left_hip_pitch_joint",
-    "right_hip_pitch_joint",
-    "waist_yaw_joint",
-    "left_hip_roll_joint",
-    "right_hip_roll_joint",
-    "waist_roll_joint",
-    "left_hip_yaw_joint",
-    "right_hip_yaw_joint",
-    "waist_pitch_joint",
-    "left_knee_joint",
-    "right_knee_joint",
-    "left_shoulder_pitch_joint",
-    "right_shoulder_pitch_joint",
-    "left_ankle_pitch_joint",
-    "right_ankle_pitch_joint",
-    "left_shoulder_roll_joint",
-    "right_shoulder_roll_joint",
-    "left_ankle_roll_joint",
-    "right_ankle_roll_joint",
-    "left_shoulder_yaw_joint",
-    "right_shoulder_yaw_joint",
-    "left_elbow_joint",
-    "right_elbow_joint",
-    "left_wrist_roll_joint",
-    "right_wrist_roll_joint",
-    "left_wrist_pitch_joint",
-    "right_wrist_pitch_joint",
-    "left_wrist_yaw_joint",
-    "right_wrist_yaw_joint",
-]
+ROBOT_CONFIGS = {
+    "g1": {
+        "num_joints": 29,
+        "joint_order": [
+            "left_hip_pitch_joint",
+            "right_hip_pitch_joint",
+            "waist_yaw_joint",
+            "left_hip_roll_joint",
+            "right_hip_roll_joint",
+            "waist_roll_joint",
+            "left_hip_yaw_joint",
+            "right_hip_yaw_joint",
+            "waist_pitch_joint",
+            "left_knee_joint",
+            "right_knee_joint",
+            "left_shoulder_pitch_joint",
+            "right_shoulder_pitch_joint",
+            "left_ankle_pitch_joint",
+            "right_ankle_pitch_joint",
+            "left_shoulder_roll_joint",
+            "right_shoulder_roll_joint",
+            "left_ankle_roll_joint",
+            "right_ankle_roll_joint",
+            "left_shoulder_yaw_joint",
+            "right_shoulder_yaw_joint",
+            "left_elbow_joint",
+            "right_elbow_joint",
+            "left_wrist_roll_joint",
+            "right_wrist_roll_joint",
+            "left_wrist_pitch_joint",
+            "right_wrist_pitch_joint",
+            "left_wrist_yaw_joint",
+            "right_wrist_yaw_joint",
+        ],
+        "body_order": [
+            "pelvis",
+            "left_hip_pitch_link",
+            "right_hip_pitch_link",
+            "waist_yaw_link",
+            "left_hip_roll_link",
+            "right_hip_roll_link",
+            "waist_roll_link",
+            "left_hip_yaw_link",
+            "right_hip_yaw_link",
+            "torso_link",
+            "left_knee_link",
+            "right_knee_link",
+            "left_shoulder_pitch_link",
+            "right_shoulder_pitch_link",
+            "left_ankle_pitch_link",
+            "right_ankle_pitch_link",
+            "left_shoulder_roll_link",
+            "right_shoulder_roll_link",
+            "left_ankle_roll_link",
+            "right_ankle_roll_link",
+            "left_shoulder_yaw_link",
+            "right_shoulder_yaw_link",
+            "left_elbow_link",
+            "right_elbow_link",
+            "left_wrist_roll_link",
+            "right_wrist_roll_link",
+            "left_wrist_pitch_link",
+            "right_wrist_pitch_link",
+            "left_wrist_yaw_link",
+            "right_wrist_yaw_link",
+        ],
+    },
+    "irmv_v3": {
+        "num_joints": 21,
+        "joint_order": [
+            "left_hip_pitch_joint",
+            "right_hip_pitch_joint",
+            "waist_yaw_joint",
+            "left_hip_roll_joint",
+            "right_hip_roll_joint",
+            "left_shoulder_pitch_joint",
+            "right_shoulder_pitch_joint",
+            "left_hip_yaw_joint",
+            "right_hip_yaw_joint",
+            "left_shoulder_roll_joint",
+            "right_shoulder_roll_joint",
+            "left_knee_joint",
+            "right_knee_joint",
+            "left_shoulder_yaw_joint",
+            "right_shoulder_yaw_joint",
+            "left_ankle_pitch_joint",
+            "right_ankle_pitch_joint",
+            "left_elbow_joint",
+            "right_elbow_joint",
+            "left_ankle_roll_joint",
+            "right_ankle_roll_joint",
+        ],
+        "body_order": [
+            "pelvis",
+            "left_hip_pitch_link",
+            "right_hip_pitch_link",
+            "torso_link",
+            "left_hip_roll_link",
+            "right_hip_roll_link",
+            "left_shoulder_pitch_link",
+            "right_shoulder_pitch_link",
+            "left_hip_yaw_link",
+            "right_hip_yaw_link",
+            "left_shoulder_roll_link",
+            "right_shoulder_roll_link",
+            "left_knee_link",
+            "right_knee_link",
+            "left_shoulder_yaw_link",
+            "right_shoulder_yaw_link",
+            "left_ankle_pitch_link",
+            "right_ankle_pitch_link",
+            "left_elbow_link",
+            "right_elbow_link",
+            "left_ankle_roll_link",
+            "right_ankle_roll_link",
+        ],
+    },
+}
 
-TARGET_BODY_ORDER = [
-    "pelvis",
-    "left_hip_pitch_link",
-    "right_hip_pitch_link",
-    "waist_yaw_link",
-    "left_hip_roll_link",
-    "right_hip_roll_link",
-    "waist_roll_link",
-    "left_hip_yaw_link",
-    "right_hip_yaw_link",
-    "torso_link",
-    "left_knee_link",
-    "right_knee_link",
-    "left_shoulder_pitch_link",
-    "right_shoulder_pitch_link",
-    "left_ankle_pitch_link",
-    "right_ankle_pitch_link",
-    "left_shoulder_roll_link",
-    "right_shoulder_roll_link",
-    "left_ankle_roll_link",
-    "right_ankle_roll_link",
-    "left_shoulder_yaw_link",
-    "right_shoulder_yaw_link",
-    "left_elbow_link",
-    "right_elbow_link",
-    "left_wrist_roll_link",
-    "right_wrist_roll_link",
-    "left_wrist_pitch_link",
-    "right_wrist_pitch_link",
-    "left_wrist_yaw_link",
-    "right_wrist_yaw_link",
-]
 
-
-def load_and_reorder(input_path: str):
+def load_and_reorder(input_path: str, robot: str = "g1"):
     """Load npz, reorder joints and bodies, save to output.
 
     Output is saved to artifacts/reordered/{input_filename} where input_filename
     is the basename of the input file.
     """
+    config = ROBOT_CONFIGS[robot]
+    target_joint_order = config["joint_order"]
+    target_body_order = config["body_order"]
+    num_joints = config["num_joints"]
+
     # Generate output path
     input_path_obj = Path(input_path)
     output_dir = Path("artifacts/reordered")
@@ -157,15 +188,15 @@ def load_and_reorder(input_path: str):
     joint_names = [str(name) for name in joint_names]
     body_names = [str(name) for name in body_names]
 
-    joint_pos_last = joint_pos[:, -29:]
-    joint_vel_last = joint_vel[:, -29:]
+    joint_pos_last = joint_pos[:, -num_joints:]
+    joint_vel_last = joint_vel[:, -num_joints:]
 
     # Create mapping from target joint name to index in joint_names
     joint_name_to_idx = {name: i for i, name in enumerate(joint_names)}
     # Build reordering index list: for each target joint, find its position in joint_names
     joint_reorder_idx = []
     missing_joints = []
-    for target in TARGET_JOINT_ORDER:
+    for target in target_joint_order:
         if target in joint_name_to_idx:
             joint_reorder_idx.append(joint_name_to_idx[target])
         else:
@@ -180,7 +211,7 @@ def load_and_reorder(input_path: str):
     body_name_to_idx = {name: i for i, name in enumerate(body_names)}
     body_reorder_idx = []
     missing_bodies = []
-    for target in TARGET_BODY_ORDER:
+    for target in target_body_order:
         if target in body_name_to_idx:
             body_reorder_idx.append(body_name_to_idx[target])
         else:
@@ -214,9 +245,10 @@ def main():
         description="Reorder joints and bodies in an npz motion file to standard ordering."
     )
     parser.add_argument("--input", type=str, required=True, help="Path to input npz file")
+    parser.add_argument("--robot", type=str, default="g1", choices=list(ROBOT_CONFIGS.keys()), help="Robot type")
     args = parser.parse_args()
 
-    output_path = load_and_reorder(args.input)
+    output_path = load_and_reorder(args.input, robot=args.robot)
 
     # Upload to wandb using input filename as collection name
     import wandb

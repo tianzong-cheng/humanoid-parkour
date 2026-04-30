@@ -29,6 +29,7 @@ parser.add_argument("--motion_file", type=str, default=None, help="Path to local
 parser.add_argument(
     "--usd_path", type=str, default=None, help="Path to USD terrain file (e.g., 'path/to/terrain.usd')."
 )
+parser.add_argument("--robot", type=str, default="g1", choices=["g1", "irmv_v3"], help="Robot type.")
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -53,7 +54,13 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 # Pre-defined configs
 ##
 from whole_body_tracking.robots.g1 import G1_CYLINDER_CFG
+from whole_body_tracking.robots.irmv_v3 import IRMV_V3_CFG
 from whole_body_tracking.tasks.tracking.mdp import MotionLoader
+
+ROBOT_CFG_MAP = {
+    "g1": G1_CYLINDER_CFG,
+    "irmv_v3": IRMV_V3_CFG,
+}
 
 
 @configclass
@@ -155,6 +162,8 @@ def main():
         scene_cfg.ground.usd_path = args_cli.usd_path
     else:
         scene_cfg = ReplayMotionsSceneCfg(num_envs=1, env_spacing=2.0)
+    # Override robot config based on --robot flag
+    scene_cfg.robot = ROBOT_CFG_MAP[args_cli.robot].replace(prim_path="{ENV_REGEX_NS}/Robot")
     scene = InteractiveScene(scene_cfg)
     sim.reset()
     # Run the simulator
