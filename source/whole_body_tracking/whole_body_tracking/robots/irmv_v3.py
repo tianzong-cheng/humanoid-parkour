@@ -4,12 +4,24 @@ from isaaclab.assets.articulation import ArticulationCfg
 
 from whole_body_tracking.assets import ASSET_DIR
 
-ARMATURE_5020 = 0.003609725
+# TODO: These motor constants MUST be measured and replaced with actual IRMV V3 motor specs.
+ARMATURE_6020 = 0.003609725
+ARMATURE_8520 = 0.025101925
+
 NATURAL_FREQ = 10 * 2.0 * 3.1415926535  # 10Hz
 DAMPING_RATIO = 2.0
 
-STIFFNESS_5020 = ARMATURE_5020 * NATURAL_FREQ**2
-DAMPING_5020 = 2.0 * DAMPING_RATIO * ARMATURE_5020 * NATURAL_FREQ
+STIFFNESS_6020 = ARMATURE_6020 * NATURAL_FREQ**2
+STIFFNESS_8520 = ARMATURE_8520 * NATURAL_FREQ**2
+
+DAMPING_6020 = 2.0 * DAMPING_RATIO * ARMATURE_6020 * NATURAL_FREQ
+DAMPING_8520 = 2.0 * DAMPING_RATIO * ARMATURE_8520 * NATURAL_FREQ
+
+EFFORT_LIMIT_6020 = 20.0
+EFFORT_LIMIT_8520 = 50.0
+
+VELOCITY_LIMIT_6020 = 50.0
+VELOCITY_LIMIT_8520 = 50.0
 
 IRMV_V3_CFG = ArticulationCfg(
     spawn=sim_utils.UrdfFileCfg(
@@ -35,16 +47,7 @@ IRMV_V3_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.76),
-        joint_pos={
-            ".*_hip_pitch_joint": -0.312,
-            ".*_knee_joint": 0.669,
-            ".*_ankle_pitch_joint": -0.363,
-            ".*_elbow_joint": 0.6,
-            "left_shoulder_roll_joint": 0.2,
-            "left_shoulder_pitch_joint": 0.2,
-            "right_shoulder_roll_joint": -0.2,
-            "right_shoulder_pitch_joint": 0.2,
-        },
+        joint_pos={".*": 0.0},
         joint_vel={".*": 0.0},
     ),
     soft_joint_pos_limit_factor=0.9,
@@ -56,32 +59,27 @@ IRMV_V3_CFG = ArticulationCfg(
                 ".*_hip_pitch_joint",
                 ".*_knee_joint",
             ],
-            effort_limit_sim=50.0,
-            velocity_limit_sim={
-                ".*_hip_yaw_joint": 32.0,
-                ".*_hip_roll_joint": 20.0,
-                ".*_hip_pitch_joint": 32.0,
-                ".*_knee_joint": 20.0,
-            },
-            stiffness=STIFFNESS_5020,
-            damping=DAMPING_5020,
-            armature=ARMATURE_5020,
+            effort_limit_sim=EFFORT_LIMIT_8520,
+            velocity_limit_sim=VELOCITY_LIMIT_8520,
+            stiffness=STIFFNESS_8520,
+            damping=DAMPING_8520,
+            armature=ARMATURE_8520,
         ),
         "feet": ImplicitActuatorCfg(
-            effort_limit_sim=50.0,
-            velocity_limit_sim=37.0,
             joint_names_expr=[".*_ankle_pitch_joint", ".*_ankle_roll_joint"],
-            stiffness=2.0 * STIFFNESS_5020,
-            damping=2.0 * DAMPING_5020,
-            armature=2.0 * ARMATURE_5020,
+            effort_limit_sim=EFFORT_LIMIT_6020,
+            velocity_limit_sim=VELOCITY_LIMIT_6020,
+            stiffness=2.0 * STIFFNESS_6020,
+            damping=2.0 * DAMPING_6020,
+            armature=2.0 * ARMATURE_6020,
         ),
         "waist_yaw": ImplicitActuatorCfg(
-            effort_limit_sim=50.0,
-            velocity_limit_sim=32.0,
             joint_names_expr=["waist_yaw_joint"],
-            stiffness=STIFFNESS_5020,
-            damping=DAMPING_5020,
-            armature=ARMATURE_5020,
+            effort_limit_sim=EFFORT_LIMIT_8520,
+            velocity_limit_sim=VELOCITY_LIMIT_8520,
+            stiffness=STIFFNESS_8520,
+            damping=DAMPING_8520,
+            armature=ARMATURE_8520,
         ),
         "arms": ImplicitActuatorCfg(
             joint_names_expr=[
@@ -90,11 +88,11 @@ IRMV_V3_CFG = ArticulationCfg(
                 ".*_shoulder_yaw_joint",
                 ".*_elbow_joint",
             ],
-            effort_limit_sim=10.0,
-            velocity_limit_sim=37.0,
-            stiffness=STIFFNESS_5020,
-            damping=DAMPING_5020,
-            armature=ARMATURE_5020,
+            effort_limit_sim=EFFORT_LIMIT_6020,
+            velocity_limit_sim=VELOCITY_LIMIT_6020,
+            stiffness=STIFFNESS_6020,
+            damping=DAMPING_6020,
+            armature=ARMATURE_6020,
         ),
     },
 )
